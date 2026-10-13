@@ -15,7 +15,8 @@
   const land = [];
   for (let i = 0; i < cells.length; i++) if (cells[i]) land.push(i);
   const indexOf = Object.fromEntries(countries.map((c, i) => [c, i + 1]));
-  const alias = { EU: 'DE', UK: 'GB' };
+  // no cells of their own on the map: Antarctica lies below its southern edge, Nauru is a dot
+  const alias = { EU: 'DE', UK: 'GB', AQ: 'TF', NR: 'SB' };
 
   const mercator = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
   const yTop = mercator(world.latTop);
