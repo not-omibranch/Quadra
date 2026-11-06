@@ -1,21 +1,12 @@
-<div align="center">
-  <img src="docs/img/banner.png" alt="Quadra — твой трафик, твой маршрут, одна наглядная карта" width="100%">
+<p align="center">
+  <img src="docs/img/logo.png" width="132" alt="Quadra">
+</p>
 
-  <p>
-    <a href="https://github.com/not-omibranch/Quadra/releases/latest"><img src="https://img.shields.io/badge/СКАЧАТЬ_QUADRA-3ddc84?style=for-the-badge&logo=download&logoColor=06150c" alt="Скачать Quadra"></a>
-    <a href="#как-это-работает"><img src="https://img.shields.io/badge/КАК_ЭТО_РАБОТАЕТ-111a15?style=for-the-badge&logo=gitbook&logoColor=9affc7" alt="Как это работает"></a>
-    <a href="https://github.com/not-omibranch/Quadra"><img src="https://img.shields.io/badge/ИСХОДНЫЙ_КОД-111a15?style=for-the-badge&logo=github&logoColor=9affc7" alt="Исходный код"></a>
-  </p>
+<h1 align="center">Quadra</h1>
 
-  <p>
-    <a href="https://github.com/not-omibranch/Quadra/releases/latest"><img src="https://img.shields.io/github/v/release/not-omibranch/Quadra?color=3ddc84&label=release" alt="Последний релиз"></a>
-    <a href="https://github.com/not-omibranch/Quadra/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/not-omibranch/Quadra/build.yml?branch=main&label=build" alt="Статус сборки"></a>
-    <img src="https://img.shields.io/badge/Windows_·_macOS_·_Linux_·_Android-2b3631" alt="Windows, macOS, Linux, Android">
-    <a href="LICENSE"><img src="https://img.shields.io/badge/лицензия-GPL--3.0-2b3631" alt="Лицензия GPL-3.0"></a>
-  </p>
-
-  <p><strong><a href="README.md">Read in English</a></strong></p>
-</div>
+<p align="center">
+  <a href="README.md">Read in English</a>
+</p>
 
 ## Быстро открывается. Быстро подключается. Всё наглядно.
 
