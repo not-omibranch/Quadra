@@ -49,8 +49,8 @@ const state = {
   platform: new URLSearchParams(location.search).get('platform') ?? 'windows',
   tiling: new URLSearchParams(location.search).has('tiling'),
   relaunchForTun: (new URLSearchParams(location.search).get('platform') ?? 'windows') === 'windows',
-  version: '0.1.0',
-  userAgent: 'Quadra/0.1.0',
+  version: '0.3.2',
+  userAgent: 'Quadra/0.3.2',
 };
 
 const snapshot = () => JSON.parse(JSON.stringify(state));

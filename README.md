@@ -1,138 +1,137 @@
-<p align="center">
-  <img src="docs/img/logo.png" width="132" alt="Quadra">
-</p>
+<div align="center">
+  <img src="docs/img/banner.png" alt="Quadra — your traffic, your route, one beautiful map" width="100%">
 
-<h1 align="center">Quadra</h1>
+  <p>
+    <a href="https://github.com/not-omibranch/Quadra/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD_QUADRA-3ddc84?style=for-the-badge&logo=download&logoColor=06150c" alt="Download Quadra"></a>
+    <a href="#how-it-works"><img src="https://img.shields.io/badge/HOW_IT_WORKS-111a15?style=for-the-badge&logo=gitbook&logoColor=9affc7" alt="How it works"></a>
+    <a href="https://github.com/not-omibranch/Quadra"><img src="https://img.shields.io/badge/EXPLORE_THE_CODE-111a15?style=for-the-badge&logo=github&logoColor=9affc7" alt="Explore the code"></a>
+  </p>
 
-<p align="center">
-  A desktop client for VLESS and the other Xray protocols.<br>
-  Fast to open, fast to connect.
-</p>
+  <p>
+    <a href="https://github.com/not-omibranch/Quadra/releases/latest"><img src="https://img.shields.io/github/v/release/not-omibranch/Quadra?color=3ddc84&label=release" alt="Latest release"></a>
+    <a href="https://github.com/not-omibranch/Quadra/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/not-omibranch/Quadra/build.yml?branch=main&label=build" alt="Build status"></a>
+    <img src="https://img.shields.io/badge/Windows_·_macOS_·_Linux_·_Android-2b3631" alt="Windows, macOS, Linux, Android">
+    <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-2b3631" alt="GPL-3.0 licence"></a>
+  </p>
 
-<p align="center">
-  <a href="https://github.com/Omibranch/quadra/releases/latest"><img src="https://img.shields.io/github/v/release/Omibranch/quadra?color=3ddc84&label=release" alt="Latest release"></a>
-  <a href="https://github.com/Omibranch/quadra/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Omibranch/quadra/build.yml?branch=main&label=build" alt="Build"></a>
-  <img src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux%20%C2%B7%20Android-2b3631" alt="Windows, macOS, Linux, Android">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-2b3631" alt="GPL-3.0 licence"></a>
-</p>
+  <p><strong><a href="README.ru.md">Читать на русском</a></strong></p>
+</div>
 
-<p align="center">
-  <a href="README.ru.md">Русская версия</a>
-</p>
+## Fast to open. Fast to connect. Clear at a glance.
 
-<p align="center">
-  <img src="docs/img/connect.gif" width="860" alt="Connecting to a server">
-</p>
+**Quadra** is a free, open-source client for VLESS and the other Xray protocols. It combines a quick Tauri shell, a responsive Svelte interface and Xray-core with a living world map that shows the route of your connection.
 
-## What it does
+Quadra is **not a VPN provider**: there is no account to create and no built-in subscription to buy. Bring your own server or provider.
 
-- **Subscriptions that actually load.** Many providers limit the number of devices and hand out
-  servers only to a client that names the device it runs on. Quadra sends the device headers
-  (`x-hwid` and friends), so those subscriptions return their full list instead of a
-  "client not supported" stub. You can switch this off.
-- **Share links and ready-made configs.** `vless://`, `vmess://`, `trojan://`, `ss://`, a base64
-  list, or a complete Xray JSON config with balancers and its own routing: paste it, drop a
-  file on the window, or just press Ctrl+V anywhere.
-- **Three ways to connect.** System proxy, all traffic through a virtual adapter (TUN), or
-  local SOCKS/HTTP ports only.
-- **A map of the connection.** It shows where you are and where the server is. The status
-  turns to "connected" only after a real request has gone through the tunnel.
-- **Routing and exclusions.** Keep the home network or a whole country direct, add your own
-  domain and address rules, and pick programs and sites that either never go through the
-  server or are the only ones that do. Programs are ticked in a list of what is installed.
-- **Yours to restyle.** Dark and light themes and any accent colour; the whole interface,
-  the map included, follows it.
+<div align="center">
+  <img src="docs/img/connect.gif" alt="Connecting to a server and drawing the route on the map" width="960">
+</div>
 
-Under the hood every connection is made by [Xray-core](https://github.com/XTLS/Xray-core),
-so everything Xray speaks works here: REALITY, XHTTP, gRPC, WebSocket and the rest.
-
-## Download
-
-Get the installer for your system from the
-[latest release](https://github.com/Omibranch/quadra/releases/latest).
-
-| System | File | Notes |
-|---|---|---|
-| Windows 10/11 | `Quadra_x.y.z_x64-setup.exe` | Installs for the current user, no administrator rights needed |
-| macOS, Apple silicon | `Quadra_x.y.z_aarch64.dmg` | See the note on unsigned builds below |
-| macOS, Intel | `Quadra_x.y.z_x64.dmg` | |
-| Linux | `.deb`, `.rpm` or `.AppImage` | Needs WebKitGTK 4.1 |
-| Android 8+ (experimental) | `Quadra_x.y.z_android-arm64.apk` | Install the file directly; it is not on Google Play |
-
-The builds are not code-signed. Windows SmartScreen will ask once ("More info", then
-"Run anyway"). On macOS, open the app the first time with a right click and "Open", or run
-`xattr -cr /Applications/Quadra.app`.
-
-**State of the platforms.** Windows is where Quadra is developed and used every day. The macOS
-and Linux versions are built and tested automatically but have not yet had much time on real
-machines: treat them as a preview and [open an issue](https://github.com/Omibranch/quadra/issues)
-when something is off.
-
-The Android version is an experiment. Every build is installed on an emulator, connects to a
-test server, and is checked for traffic from other apps really passing through the tunnel and
-for a clean disconnect. It has never run on a physical phone.
-
-The interface is in Russian for now.
-
-## A closer look
+## Why Quadra
 
 | | |
 |---|---|
-| ![Connected, with live traffic](docs/img/connected.png) | ![Settings](docs/img/settings.png) |
-| Connected: exit address, latency, live speed | Settings apply at once, there is no "save" |
-| ![Routing rules and exclusions](docs/img/routes.png) | ![Light theme](docs/img/light.png) |
-| Routing presets, exclusions and your own rules | Light theme |
+| **Subscriptions that actually load** | Device headers (`x-hwid` and friends) let providers with device limits return the full server list instead of an “unsupported client” stub. This can be switched off. |
+| **Bring almost anything** | Paste `vless://`, `vmess://`, `trojan://`, `ss://`, a Base64 list or a complete Xray JSON config. Drag a file onto the window or press Ctrl+V anywhere. |
+| **Three connection modes** | Use the system proxy, route all traffic through TUN, or expose local SOCKS5 and HTTP ports without changing system settings. |
+| **A connection you can see** | The block on the map travels from your location to the server. “Connected” appears only after a real request has passed through the tunnel. |
+| **Routing without the fight** | Keep your LAN or a country direct, add domain/IP rules, and choose apps and sites to exclude — or the only ones to proxy. |
+| **Make it yours** | Dark and light themes, eight accent palettes and a custom colour. The entire interface, including the map, follows your choice. |
 
-## Notes on the modes
+Under the hood, connections are made by **[Xray-core](https://github.com/XTLS/Xray-core)**: REALITY, XHTTP, gRPC, WebSocket and the rest of the Xray ecosystem are supported.
 
-- **All traffic (TUN)** needs elevated rights to create the adapter. On Windows the app
-  restarts itself as administrator; on macOS and Linux only the core is started with rights,
-  through the system's own password prompt (`pkexec` on Linux).
-- Two tunnels cannot share one machine. If another VPN already holds the default route,
-  Quadra says so instead of starting a second tunnel next to it.
-- **System proxy** is set through the system's own mechanism: the Windows Internet settings,
-  `networksetup` on macOS, GNOME or KDE settings on Linux. On desktops without such a setting
-  use the ports or the all-traffic mode.
-- **Android** has one mode, the system VPN. Quadra itself is left out of the tunnel so that
-  its own connection to the server does not loop back into it.
-- **Tiling window managers** (sway, i3, Hyprland and others) are detected: the window drops its
-  own title bar and startup splash, has no minimum size, and folds into a single column when the
-  tile is narrow.
+## How it works
 
-## Building from source
+<div align="center">
+  <img src="docs/img/how-it-works.png" alt="Subscription or link → Quadra configuration and routing → Xray-core → your server" width="100%">
+</div>
 
-You need [Node.js](https://nodejs.org) 22 or newer, [Rust](https://rustup.rs) and the
-[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your system.
+1. **Add an input.** Import a subscription, share link, list or ready-made Xray configuration.
+2. **Choose the route.** Quadra prepares device headers, DNS, exclusions and the connection mode.
+3. **Start the core.** Xray-core handles the protocol and establishes the tunnel.
+4. **Verify the exit.** The interface reports success only after a request confirms the connection.
+
+## Download
+
+Get the installer for your system from the **[latest release](https://github.com/not-omibranch/Quadra/releases/latest)**.
+
+| System | File | Notes |
+|---|---|---|
+| Windows 10/11 | `Quadra_0.3.2_x64-setup.exe` | Per-user installation; administrator rights are not required for installation |
+| macOS, Apple silicon | `Quadra_0.3.2_aarch64.dmg` | Unsigned build; see the first-launch note below |
+| macOS, Intel | `Quadra_0.3.2_x64.dmg` | Unsigned build |
+| Linux | `.deb`, `.rpm` or `.AppImage` | Requires WebKitGTK 4.1 |
+| Android 8+ | `Quadra_0.3.2_android-arm64.apk` | Experimental; install the APK directly |
+
+The desktop builds are not code-signed. On Windows, SmartScreen may ask once: choose **More info → Run anyway**. On macOS, right-click Quadra and choose **Open**, or run:
 
 ```sh
-npm install
-node tools/fetch-xray.mjs     # downloads Xray-core for this machine and verifies its checksum
-npm run tauri dev             # run it
-npm run tauri build           # make the installer
+xattr -cr /Applications/Quadra.app
 ```
 
-`npm run dev` alone serves the interface in a browser against a stand-in backend with sample
-data, which is the quickest way to work on the interface.
+**Platform status.** Windows is the primary development platform. macOS and Linux are compiled, tested and smoke-started in CI, but should still be treated as previews. Android is experimental: automated emulator tests cover connecting, passing another app's traffic and disconnecting cleanly; physical-device testing is still needed.
 
-Where things are:
+## A closer look
 
-| Path | What |
+| Connected | Routing |
 |---|---|
-| `src/` | The interface (Svelte 5). `lib/MapView.svelte` is the map and the connect animation, `app.css` holds every colour, size and speed as a variable |
-| `src-tauri/src/` | The backend (Rust): subscriptions, share links, Xray config, the core's lifecycle |
-| `src-tauri/src/sys/` | Everything that differs between operating systems |
-| `src-tauri/plugins/vpn/` | The Android side: the VPN service, in Kotlin |
-| `tools/` | Scripts: the map generator, the startup cube (a Blender render), end-to-end checks |
+| ![Connected: exit address, latency and live traffic](docs/img/connected.png) | ![Routing presets, exclusions and custom rules](docs/img/routes.png) |
+| **Live connection** — exit address, latency, throughput and session traffic. | **Flexible routing** — presets, per-app/site exclusions and custom rules. |
 
-Tests: `cargo test` in `src-tauri`.
+| Appearance | Light theme |
+|---|---|
+| ![Custom accent colour](docs/img/accent.png) | ![Light theme](docs/img/light.png) |
+| **Your palette** — one accent across the entire UI and map. | **Light or dark** — switch instantly, with no restart. |
 
-## Credits
+## Build from source
 
-Quadra stands on [Xray-core](https://github.com/XTLS/Xray-core),
-[Tauri](https://tauri.app) and [Svelte](https://svelte.dev). The map is drawn from
-[Natural Earth](https://www.naturalearthdata.com) data. See [THIRD_PARTY.md](THIRD_PARTY.md).
+You need **[Node.js](https://nodejs.org) 22+**, **[Rust](https://rustup.rs)** and the **[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)** for your system.
+
+```sh
+npm ci
+node tools/fetch-xray.mjs     # download Xray-core and verify its checksum
+npm run tauri dev             # run the app
+npm run tauri build           # build the installer
+```
+
+For interface work, `npm run dev` starts the Svelte UI in a browser against a mock backend. No VPN or system proxy is touched.
+
+```sh
+cd src-tauri
+cargo test
+```
+
+### Repository map
+
+| Path | What lives there |
+|---|---|
+| `src/` | Svelte 5 interface; `lib/MapView.svelte` draws the map and connection animation |
+| `src/app.css` | Theme, accent, sizing and motion variables |
+| `src-tauri/src/` | Rust backend: subscriptions, links, Xray configuration and core lifecycle |
+| `src-tauri/src/sys/` | Windows, macOS and Linux integration |
+| `src-tauri/plugins/vpn/` | Android VPN service in Kotlin |
+| `tools/` | Xray fetching, map generation, end-to-end checks and documentation capture |
+| `.github/workflows/` | Cross-platform builds, tests, smoke checks, Android E2E and releases |
+
+### Rebuild the README visuals
+
+The screenshots and connection GIF are generated from the real browser interface, not a separate design mock-up. You need Chrome or Edge, plus Python with Pillow for GIF/icon assembly.
+
+```sh
+npm run docs:capture
+npm run docs:assemble
+```
+
+The capture script starts a temporary local Vite server, uses the mock backend, saves every frame headlessly and stops the server when finished.
+
+## Contribute
+
+Issues and pull requests are welcome. Please keep the UI keyboard-accessible, put platform-specific behaviour in `src-tauri/src/sys/`, and never test routing by changing the developer's live VPN connection.
+
+- [Report a bug](https://github.com/not-omibranch/Quadra/issues/new)
+- [Browse releases](https://github.com/not-omibranch/Quadra/releases)
+- [Read third-party notices](THIRD_PARTY.md)
 
 ## Licence
 
-[GPL-3.0](LICENSE) from version 0.3.1: Quadra is free to use, change and pass on, and anything built
-from it has to stay open under the same terms. Versions up to 0.3.0 were released under MIT.
+**[GPL-3.0](LICENSE)** from version 0.3.1: Quadra is free to use, study, modify and share, and derivative works must remain open under the same terms. Versions through 0.3.0 were released under MIT.

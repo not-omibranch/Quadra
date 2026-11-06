@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="460" viewBox="0 0 1400 460">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1400" y2="460" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101813"/><stop offset="1" stop-color="#070b08"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#78f3ac"/><stop offset="1" stop-color="#2ecb76"/>
+    </linearGradient>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="10"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#45d989"/></marker>
+    <style>
+      .title{font:700 26px 'Segoe UI',sans-serif;fill:#e5f0e9;letter-spacing:2px}.sub{font:400 14px 'Segoe UI',sans-serif;fill:#758a7d}.card{fill:#101713;stroke:#2a3930;stroke-width:2}.card.active{fill:#10251a;stroke:#45d989}.name{font:600 23px 'Segoe UI',sans-serif;fill:#e6f0e9}.desc{font:400 14px 'Segoe UI',sans-serif;fill:#8fa398}.tag{font:600 12px 'Consolas',monospace;fill:#57e595;letter-spacing:1px}.mode{font:600 15px 'Segoe UI',sans-serif;fill:#bcd0c3}.line{stroke:#45d989;stroke-width:3;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1400" height="460" rx="22" fill="url(#bg)"/>
+  <rect x="1" y="1" width="1398" height="458" rx="21" fill="none" stroke="#26362c" stroke-width="2"/>
+  <path d="M0 90H1400" stroke="#223028"/>
+  <text x="48" y="48" class="title">HOW QUADRA WORKS</text>
+  <text x="48" y="72" class="sub">One local app, an open core, and routing rules that stay under your control.</text>
+
+  <rect x="48" y="132" width="270" height="148" rx="12" class="card"/>
+  <text x="76" y="165" class="tag">01 · INPUT</text>
+  <text x="76" y="204" class="name">Subscription or link</text>
+  <text x="76" y="235" class="desc">VLESS, VMess, Trojan, SS,</text>
+  <text x="76" y="257" class="desc">Base64 or full Xray JSON</text>
+
+  <path d="M330 206H394" class="line"/>
+  <rect x="410" y="116" width="280" height="180" rx="12" class="card active"/>
+  <rect x="434" y="140" width="34" height="34" rx="8" fill="url(#accent)"/>
+  <path d="M443 150h16v16h-16zM447 146h16v16h-16z" fill="none" stroke="#092313" stroke-width="2"/>
+  <text x="484" y="165" class="tag">02 · QUADRA</text>
+  <text x="438" y="214" class="name">Configure &amp; route</text>
+  <text x="438" y="245" class="desc">Device headers, exclusions,</text>
+  <text x="438" y="267" class="desc">DNS and connection mode</text>
+
+  <path d="M702 206H766" class="line"/>
+  <rect x="782" y="132" width="240" height="148" rx="12" class="card"/>
+  <text x="810" y="165" class="tag">03 · CORE</text>
+  <text x="810" y="204" class="name">Xray-core</text>
+  <text x="810" y="235" class="desc">REALITY, XHTTP, gRPC,</text>
+  <text x="810" y="257" class="desc">WebSocket and more</text>
+
+  <path d="M1034 206H1098" class="line"/>
+  <rect x="1114" y="132" width="238" height="148" rx="12" class="card"/>
+  <text x="1142" y="165" class="tag">04 · EXIT</text>
+  <text x="1142" y="204" class="name">Your server</text>
+  <text x="1142" y="235" class="desc">Live status appears only</text>
+  <text x="1142" y="257" class="desc">after a verified request</text>
+
+  <text x="48" y="337" class="tag">THREE WAYS TO CONNECT</text>
+  <rect x="48" y="360" width="416" height="56" rx="8" class="card"/><circle cx="78" cy="388" r="7" fill="#45d989"/><text x="100" y="394" class="mode">System proxy</text><text x="250" y="394" class="desc">for proxy-aware apps</text>
+  <rect x="492" y="360" width="416" height="56" rx="8" class="card"/><circle cx="522" cy="388" r="7" fill="#45d989"/><text x="544" y="394" class="mode">TUN</text><text x="602" y="394" class="desc">all traffic through the tunnel</text>
+  <rect x="936" y="360" width="416" height="56" rx="8" class="card"/><circle cx="966" cy="388" r="7" fill="#45d989"/><text x="988" y="394" class="mode">Local ports</text><text x="1110" y="394" class="desc">SOCKS5 + HTTP</text>
+</svg>

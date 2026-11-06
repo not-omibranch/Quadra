@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="48" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#15221B"/>
+      <stop offset="0.52" stop-color="#090E0B"/>
+      <stop offset="1" stop-color="#050806"/>
+    </linearGradient>
+    <linearGradient id="top" x1="-42" y1="-52" x2="45" y2="15" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9AFFC7"/>
+      <stop offset="1" stop-color="#43E78B"/>
+    </linearGradient>
+    <linearGradient id="left" x1="-55" y1="-20" x2="5" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#35D77D"/>
+      <stop offset="1" stop-color="#1AA458"/>
+    </linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="58" y2="65" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20B866"/>
+      <stop offset="1" stop-color="#0D713D"/>
+    </linearGradient>
+    <filter id="shadow" x="-100%" y="-100%" width="300%" height="300%">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#000" flood-opacity="0.38"/>
+    </filter>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <g id="cube" filter="url(#shadow)">
+      <path d="M0-62 60-31 0 0-60-31 0-62Z" fill="url(#top)"/>
+      <path d="M-60-31 0 0 0 70-60 39-60-31Z" fill="url(#left)"/>
+      <path d="M0 0 60-31 60 39 0 70 0 0Z" fill="url(#right)"/>
+      <path d="M0-62 60-31 0 0-60-31 0-62Z" stroke="#C0FFDB" stroke-opacity="0.42" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M0 0V70" stroke="#8AFFBA" stroke-opacity="0.18" stroke-width="2"/>
+    </g>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="17" y="17" width="478" height="478" rx="111" stroke="#6CF7A6" stroke-opacity="0.16" stroke-width="2"/>
+  <circle cx="256" cy="246" r="156" fill="#31E681" fill-opacity="0.12" filter="url(#glow)"/>
+  <path d="M84 128H428M84 384H428M128 84V428M384 84V428" stroke="#8AFFBA" stroke-opacity="0.045" stroke-width="2"/>
+  <use href="#cube" transform="translate(180 164) scale(.82)"/>
+  <use href="#cube" transform="translate(332 164) scale(.82)"/>
+  <use href="#cube" transform="translate(180 316) scale(.82)"/>
+  <use href="#cube" transform="translate(332 316) scale(.82)"/>
+  <path d="M350 352 414 416" stroke="#54EE98" stroke-width="28" stroke-linecap="square"/>
+  <path d="M350 352 414 416" stroke="#A3FFCA" stroke-opacity="0.34" stroke-width="3" stroke-linecap="square"/>
+</svg>

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quadra — GitHub banner</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { width: 1600px; height: 500px; margin: 0; overflow: hidden; }
+  body {
+    position: relative;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    color: #e8f2ec;
+    background:
+      radial-gradient(circle at 21% 40%, rgba(44, 220, 126, .13), transparent 33%),
+      radial-gradient(circle at 88% 50%, rgba(44, 220, 126, .09), transparent 39%),
+      linear-gradient(125deg, #0c120f 0%, #070a08 58%, #050806 100%);
+  }
+  body::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(112, 244, 165, .16) 1px, transparent 1px);
+    background-size: 22px 22px;
+    mask-image: linear-gradient(90deg, #000, transparent 56%);
+    opacity: .38;
+  }
+  body::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+    background: linear-gradient(90deg, #3ddc84 0 23%, rgba(61,220,132,.08) 60%, transparent);
+  }
+  .copy { position: absolute; z-index: 2; left: 78px; top: 55px; width: 650px; }
+  .brand { display: flex; align-items: center; gap: 24px; }
+  .brand img { width: 94px; height: 94px; border-radius: 23px; box-shadow: 0 16px 48px rgba(0,0,0,.34); }
+  .wordmark { font: 700 70px/1 "Bahnschrift", "Segoe UI", sans-serif; letter-spacing: .085em; }
+  .version { display: inline-block; vertical-align: top; margin: 4px 0 0 12px; padding: 7px 9px; border: 1px solid rgba(93,238,153,.26); border-radius: 4px; color: #72efa7; font: 600 12px/1 "Cascadia Mono", monospace; letter-spacing: .08em; }
+  .eyebrow { margin-top: 34px; color: #77e9a7; font: 600 13px/1.2 "Cascadia Mono", monospace; letter-spacing: .16em; }
+  h1 { margin: 15px 0 12px; max-width: 610px; font-size: 41px; line-height: 1.08; letter-spacing: -.035em; font-weight: 650; }
+  h1 span { color: #55e995; }
+  .sub { width: 550px; margin: 0; color: #98aaa0; font-size: 18px; line-height: 1.48; }
+  .actions { display: flex; gap: 12px; margin-top: 29px; }
+  .button { height: 46px; display: flex; align-items: center; gap: 12px; padding: 0 20px; border-radius: 5px; font-size: 13px; font-weight: 700; letter-spacing: .055em; }
+  .primary { color: #06150c; background: #4be58f; border: 1px solid #75f0aa; box-shadow: 0 8px 30px rgba(61,220,132,.15); }
+  .secondary { color: #c3d3c9; background: rgba(19,29,23,.88); border: 1px solid #2c3b32; }
+  .arrow { font-size: 19px; line-height: 0; }
+  .platforms { margin-top: 22px; color: #5e7166; font: 500 11px/1 "Cascadia Mono", monospace; letter-spacing: .12em; }
+  .showcase { position: absolute; z-index: 1; right: -82px; top: 48px; width: 945px; height: 592px; transform: perspective(1400px) rotateY(-5deg) rotateX(1deg); transform-origin: center; }
+  .showcase::before { content: ""; position: absolute; inset: -30px -10px -30px -30px; background: rgba(41,222,126,.11); filter: blur(52px); border-radius: 40px; }
+  .frame { position: relative; width: 945px; height: 592px; padding: 7px; border: 1px solid rgba(118,239,166,.22); border-radius: 12px; background: #111a15; box-shadow: 0 34px 90px rgba(0,0,0,.58); overflow: hidden; }
+  .frame img { display: block; width: 929px; height: 581px; object-fit: cover; object-position: center; border-radius: 7px; }
+  .live { position: absolute; right: 24px; top: 22px; display: flex; align-items: center; gap: 8px; height: 29px; padding: 0 11px; color: #91f5b9; background: rgba(5,17,10,.88); border: 1px solid rgba(86,235,145,.28); border-radius: 4px; backdrop-filter: blur(10px); font: 600 10px/1 "Cascadia Mono", monospace; letter-spacing: .1em; }
+  .live i { width: 6px; height: 6px; background: #4be58f; box-shadow: 0 0 12px #4be58f; }
+  .spec { position: absolute; z-index: 3; right: 44px; bottom: 24px; display: flex; gap: 8px; }
+  .spec span { padding: 8px 10px; color: #82978a; background: rgba(8,14,10,.9); border: 1px solid #24332a; border-radius: 3px; font: 500 10px/1 "Cascadia Mono", monospace; letter-spacing: .08em; }
+</style>
+</head>
+<body>
+  <section class="copy">
+    <div class="brand">
+      <img src="logo.svg" alt="">
+      <div><span class="wordmark">QUADRA</span><span class="version">OPEN SOURCE</span></div>
+    </div>
+    <div class="eyebrow">VLESS · XRAY-CORE · TAURI 2</div>
+    <h1>Your traffic. Your route.<br><span>One beautiful map.</span></h1>
+    <p class="sub">A fast, open client for VLESS and every Xray protocol — with subscriptions, flexible routing and a connection you can see.</p>
+    <div class="actions">
+      <div class="button primary">DOWNLOAD QUADRA <span class="arrow">↗</span></div>
+      <div class="button secondary">EXPLORE THE CODE</div>
+    </div>
+    <div class="platforms">WINDOWS &nbsp;·&nbsp; MACOS &nbsp;·&nbsp; LINUX &nbsp;·&nbsp; ANDROID</div>
+  </section>
+  <div class="showcase">
+    <div class="frame">
+      <img src="../img/connected.png" alt="Quadra connected interface">
+      <div class="live"><i></i> LIVE CONNECTION</div>
+    </div>
+  </div>
+  <div class="spec"><span>REALITY</span><span>XHTTP</span><span>GRPC</span><span>WEBSOCKET</span></div>
+</body>
+</html>

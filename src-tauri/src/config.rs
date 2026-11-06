@@ -130,10 +130,10 @@ fn from_link(outbound: &Value, s: &Settings, tun: bool) -> Map<String, Value> {
     let (bypass_first, bypass_last) = bypass_rules(s, "proxy", "direct");
     rules.extend(bypass_first);
     rules.extend(user_rules(s, "proxy", "direct", "block"));
-    if s.routing != "all" {
-        // spelled out rather than "geoip:private": the core then has no 16 MB file to open at start
-        rules.push(json!({"type": "field", "ip": PRIVATE_NETWORKS, "outboundTag": "direct"}));
-    }
+    // Always direct, in every routing mode, "all" included: a home LAN (printer, router, smart
+    // speaker) should stay reachable even when the user wants every other destination proxied.
+    // Spelled out rather than "geoip:private": the core then has no 16 MB file to open at start.
+    rules.push(json!({"type": "field", "ip": PRIVATE_NETWORKS, "outboundTag": "direct"}));
     if s.routing == "ru" {
         rules.push(json!({"type": "field", "domain": ["geosite:category-ru", "domain:ru", "domain:su", "domain:xn--p1ai"], "outboundTag": "direct"}));
         rules.push(json!({"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"}));
@@ -357,5 +357,16 @@ mod tests {
         assert_eq!(cfg["policy"]["levels"]["8"]["connIdle"], 300);
         assert_eq!(cfg["policy"]["system"]["statsInboundDownlink"], true);
         assert!(cfg.get("remarks").is_none());
+    }
+
+    #[test]
+    fn all_mode_still_keeps_the_local_network_direct() {
+        let s = Settings { routing: "all".into(), ..Default::default() };
+        let link = Server { outbound: Some(json!({"protocol": "vless"})), ..Default::default() };
+        let cfg = build(&link, &s, false, 4000).unwrap();
+        let rules = cfg["routing"]["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|rule| {
+            rule["ip"] == json!(PRIVATE_NETWORKS) && rule["outboundTag"] == "direct"
+        }));
     }
 }

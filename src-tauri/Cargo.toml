@@ -1,6 +1,6 @@
 [package]
 name = "quadra"
-version = "0.3.1"
+version = "0.3.2"
 license = "GPL-3.0-only"
 edition = "2021"
 
