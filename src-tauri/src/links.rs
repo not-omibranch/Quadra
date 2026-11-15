@@ -154,10 +154,24 @@ fn stream(q: &HashMap<String, String>, default_security: &str) -> (Value, String
     (Value::Object(s), net, security)
 }
 
+/// Happ-style names carry the server's description after the name:
+/// `#Name?serverDescription=<base64>`. Returns the name and the decoded description.
+fn split_description(fragment: &str) -> (String, String) {
+    match fragment.split_once("?serverDescription=") {
+        Some((name, b)) => {
+            let text = b64(b.split('&').next().unwrap_or("")).map(|d| String::from_utf8_lossy(&d).into_owned()).unwrap_or_default();
+            (name.to_string(), names::clean(&text))
+        }
+        None => (fragment.to_string(), String::new()),
+    }
+}
+
 fn finish(proto: &str, u: &Url, uri: &str, outbound: Value, net: String, security: String) -> Server {
-    let raw = if u.name.is_empty() { format!("{}:{}", u.host, u.port) } else { u.name.clone() };
+    let (fragment, note) = split_description(&u.name);
+    let raw = if fragment.is_empty() { format!("{}:{}", u.host, u.port) } else { fragment };
     let name = names::clean(&raw);
     Server {
+        note,
         name: if name.is_empty() { u.host.clone() } else { name },
         cc: names::flag_cc(&raw).or_else(|| names::guess_cc(&raw)).unwrap_or_default(),
         proto: proto.into(),
@@ -265,6 +279,15 @@ mod tests {
         assert_eq!(st["tlsSettings"]["alpn"][1], "http/1.1");
         let w = parse("vless://u@h.example:443?type=ws&security=tls&path=%2Fws&host=cdn.example#w").unwrap();
         assert_eq!(w.outbound.unwrap()["streamSettings"]["wsSettings"]["host"], "cdn.example");
+    }
+
+    #[test]
+    fn happ_description_is_not_part_of_the_name() {
+        // "Quadra VPN" in base64, as Remnawave writes it
+        let s = parse("vless://u@h.example:443?type=tcp&security=reality&sni=a.b&pbk=K#%F0%9F%87%A9%F0%9F%87%AA%20%D0%93%D0%B5%D1%80%D0%BC%D0%B0%D0%BD%D0%B8%D1%8F%20%7C%20%D0%A0%D0%B5%D0%B7%D0%B5%D1%80%D0%B2?serverDescription=UXVhZHJhIFZQTg==").unwrap();
+        assert_eq!(s.name, "Германия | Резерв");
+        assert_eq!(s.cc, "DE");
+        assert_eq!(s.note, "Quadra VPN");
     }
 
     #[test]
