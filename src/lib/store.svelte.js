@@ -120,7 +120,8 @@ export async function connect() {
   if (!server) return;
   if (app.status.state === 'connecting' && app.status.server === server.id) return;
   try {
-    await invoke('connect', { id: server.id });
+    // "auto" is the core's own choice among all servers (a urltest group); it reports which one it took
+    await invoke('connect', { id: auto ? 'auto' : server.id });
   } catch {
     // the reason arrives with the status event and is shown from there
   }

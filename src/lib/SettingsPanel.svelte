@@ -125,7 +125,16 @@
     <Segmented small value={s.log_level} onchange={(v) => setLink('log_level', v)}
                options={[{ value: 'warning', label: 'Важное' }, { value: 'info', label: 'Подробно' }, { value: 'debug', label: 'Отладка' }]} />
   </Field>
-  <Field title="О программе" hint="Соединения обслуживает Xray-core">
+  {#if app.platform !== 'android'}
+  <Field title="Ядро" hint="sing-box сам держит самый быстрый рабочий сервер в режиме «Авто». Xray остаётся запасным: на нём идут серверы, которые sing-box не поддерживает">
+    <Segmented small value={s.core} onchange={(v) => setLink('core', v)}
+               options={[{ value: 'auto', label: 'sing-box' }, { value: 'xray', label: 'Xray (запасное)' }]} />
+  </Field>
+  <Field title="XHTTP через Xray" hint="Серверы с транспортом XHTTP подключать через Xray, а не через sing-box">
+    <Toggle checked={s.xhttp_via_xray} onchange={(v) => setLink('xhttp_via_xray', v)} />
+  </Field>
+  {/if}
+  <Field title="О программе" hint={app.platform === 'android' ? 'Соединения обслуживает Xray-core' : 'Соединения обслуживает sing-box, запасное ядро — Xray-core'}>
     <code>Quadra {app.version}{app.admin ? ' · администратор' : ''}</code>
   </Field>
 </Panel>
