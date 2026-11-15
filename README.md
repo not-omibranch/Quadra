@@ -106,7 +106,7 @@ cargo test
 
 ### Rebuild the README visuals
 
-The screenshots and connection GIF are generated from the real browser interface, not a separate design mock-up. You need Chrome or Edge, plus Python with Pillow for GIF/icon assembly.
+The screenshots and connection GIF are generated from the real browser interface, not a separate design mock-up. You need Chrome or Edge, plus Python with Pillow to assemble the GIF.
 
 ```sh
 npm run docs:capture
