@@ -400,9 +400,6 @@ fn xray_reason(ctx: &Ctx, server: &Server, settings: &Settings) -> Option<String
     if let Some(r) = singbox::needs_xray(server) {
         return Some(format!("sing-box не умеет: {r}"));
     }
-    if settings.xhttp_via_xray && singbox::is_xhttp(server) {
-        return Some("XHTTP идёт через Xray (настройка)".into());
-    }
     None
 }
 
@@ -413,7 +410,6 @@ fn auto_candidates(ctx: &Ctx, settings: &Settings) -> Vec<Server> {
     let pings = ctx.pings.lock().unwrap();
     let mut list: Vec<(i32, Server)> = d.servers.iter()
         .filter(|s| singbox::primary(s).is_some_and(|o| singbox::outbound(&o, "x").is_ok()))
-        .filter(|s| !(settings.xhttp_via_xray && singbox::is_xhttp(s)))
         .map(|s| (pings.get(&s.id).copied().filter(|p| *p > 0).unwrap_or(i32::MAX), s.clone()))
         .collect();
     list.sort_by_key(|(p, _)| *p);

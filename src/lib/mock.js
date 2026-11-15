@@ -14,7 +14,7 @@ const state = {
     bypass_mode: 'exclude', bypass_apps: ['Steam.exe'], bypass_domains: ['example.org', 'bank.example'],
     dns: '1.1.1.1, 8.8.8.8', close_to_tray: true, autostart: false, autoconnect: false, send_hwid: true,
     user_agent: '', geo_lookup: true, home: { lat: 55.75, lon: 37.62, cc: 'RU', ip: '203.0.113.7', manual: false },
-    sub_update_hours: 12, log_level: 'warning', core: 'auto', xhttp_via_xray: true, selected: 'a2', collapsed: [],
+    sub_update_hours: 12, log_level: 'warning', core: 'auto', selected: 'a2', collapsed: [],
   },
   subs: [
     { id: 's1', url: 'https://sub.example/one', title: 'ArrowVPN', upload: 0, download: 6.4e9, total: 21474836480,

@@ -130,9 +130,6 @@
     <Segmented small value={s.core} onchange={(v) => setLink('core', v)}
                options={[{ value: 'auto', label: 'sing-box' }, { value: 'xray', label: 'Xray (запасное)' }]} />
   </Field>
-  <Field title="XHTTP через Xray" hint="Серверы с транспортом XHTTP подключать через Xray, а не через sing-box">
-    <Toggle checked={s.xhttp_via_xray} onchange={(v) => setLink('xhttp_via_xray', v)} />
-  </Field>
   {/if}
   <Field title="О программе" hint={app.platform === 'android' ? 'Соединения обслуживает Xray-core' : 'Соединения обслуживает sing-box, запасное ядро — Xray-core'}>
     <code>Quadra {app.version}{app.admin ? ' · администратор' : ''}</code>
