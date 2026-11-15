@@ -1260,7 +1260,7 @@ mod dump {
             ("trojan", "trojan://p@198.51.100.2:443?security=tls&sni=b&type=httpupgrade&path=%2Fu#b"),
             ("ss", "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpwYXNz@1.2.3.4:8388#n"),
             ("vmess", "vmess://eyJhZGQiOiIxLjIuMy40IiwicG9ydCI6IjQ0MyIsImlkIjoiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwibmV0Ijoid3MiLCJ0bHMiOiJ0bHMiLCJwYXRoIjoiL3YiLCJob3N0IjoiYS5iIiwicHMiOiJ2In0="),
-            ("xhttp", "vless://11111111-2222-3333-4444-555555555555@198.51.100.9:443?type=xhttp&security=reality&sni=www.nvidia.com&pbk=jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0&sid=1&path=%2Fp&mode=auto#r"),
+            ("xhttp", "vless://11111111-2222-3333-4444-555555555555@198.51.100.9:443?type=xhttp&security=reality&sni=www.nvidia.com&pbk=jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0&sid=01&path=%2Fp&mode=auto#r"),
         ];
         let mut st = Settings { routing: "ru".into(), bypass_apps: vec!["Steam.exe".into()], bypass_domains: vec!["example.org".into()], ..Default::default() };
         st.rules.push(crate::model::Rule { kind: "domain".into(), value: "example.net".into(), action: "block".into() });
