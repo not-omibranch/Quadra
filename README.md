@@ -10,7 +10,7 @@
 
 ## Fast to open. Fast to connect. Clear at a glance.
 
-**Quadra** is a free, open-source client for VLESS and the other Xray protocols. It combines a quick Tauri shell, a responsive Svelte interface and Xray-core with a living world map that shows the route of your connection.
+**Quadra** is a free, open-source client for VLESS and the other Xray protocols. It combines a quick Tauri shell, a responsive Svelte interface and the sing-box core with a living world map that shows the route of your connection.
 
 Quadra is **not a VPN provider**: there is no account to create and no built-in subscription to buy. Bring your own server or provider.
 
