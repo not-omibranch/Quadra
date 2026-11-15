@@ -512,6 +512,157 @@ fn apply_overrides(settings: &mut Settings, overrides: &Value) {
     }
 }
 
+#[cfg(debug_assertions)]
+fn rss_kb(pid: Option<u64>) -> Option<u64> {
+    let text = std::fs::read_to_string(format!("/proc/{}/status", pid?)).ok()?;
+    text.lines().find_map(|l| l.strip_prefix("VmRSS:")).and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+}
+
+/// Downloads `url` through the local SOCKS port; returns (bytes, milliseconds).
+#[cfg(debug_assertions)]
+async fn fetch_through(socks: u16, url: &str, secs: u64) -> Result<(u64, u64), String> {
+    let proxy = reqwest::Proxy::all(format!("socks5h://127.0.0.1:{socks}")).map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().proxy(proxy).timeout(std::time::Duration::from_secs(secs)).build().map_err(|e| e.to_string())?;
+    let t = std::time::Instant::now();
+    let mut resp = client.get(url).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let mut n = 0u64;
+    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+        n += chunk.len() as u64;
+    }
+    Ok((n, t.elapsed().as_millis() as u64))
+}
+
+/// Development aid, debug builds only: `bench.json` in the data folder runs connection cycles
+/// and writes `bench-result.json` next to it.
+/// `{"link": "<links or base64 list>", "pick": 0, "auto": false, "settings": {"mode": "ports", "core": "auto"},
+///   "cycles": 20, "pause_ms": 500, "download_url": "...", "soak_secs": 0, "soak_download_url": "..."}`
+/// Each cycle: connect (timings by stage), the core's memory, optionally a download through the
+/// tunnel, disconnect. `soak_secs` then repeats connect/download/disconnect for that long and
+/// counts failures and core crashes (`bench-soak.json`, rewritten after every round).
+#[cfg(debug_assertions)]
+async fn bench(app: AppHandle, ctx: Arc<Ctx>) {
+    let path = ctx.dir.join("bench.json");
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let Ok(job) = serde_json::from_str::<Value>(&text) else { return };
+    let _ = std::fs::rename(&path, ctx.dir.join("bench.started.json"));
+    let out = |name: &str, v: &Value| {
+        let _ = std::fs::write(ctx.dir.join(name), serde_json::to_vec_pretty(v).unwrap_or_default());
+    };
+    let (mut servers, _) = subs::parse_body(job["link"].as_str().unwrap_or(""));
+    subs::assign_ids(&mut servers, None);
+    if servers.is_empty() {
+        return out("bench-result.json", &json!({"error": "no server in the link"}));
+    }
+    let auto = job["auto"].as_bool().unwrap_or(false);
+    let pick = job["pick"].as_u64().unwrap_or(0) as usize;
+    let id = if auto { "auto".to_string() } else { servers.get(pick).unwrap_or(&servers[0]).id.clone() };
+    {
+        let mut d = ctx.data.lock().unwrap();
+        d.servers = servers;
+        d.settings.geo_lookup = false;
+        apply_overrides(&mut d.settings, &job["settings"]);
+    }
+    changed(&app, &ctx);
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    if auto {
+        core::ping(app.clone(), ctx.clone(), vec![]).await;
+    }
+    let socks = ctx.data.lock().unwrap().settings.socks_port;
+    let pause = std::time::Duration::from_millis(job["pause_ms"].as_u64().unwrap_or(500));
+    let mut cycles = vec![];
+    for i in 0..job["cycles"].as_u64().unwrap_or(0) {
+        *ctx.timing.lock().unwrap() = Value::Null;
+        let result = core::connect(app.clone(), ctx.clone(), id.clone()).await;
+        let mut row = ctx.timing.lock().unwrap().clone();
+        if !row.is_object() {
+            row = json!({});
+        }
+        row["cycle"] = json!(i);
+        row["ok"] = json!(result.is_ok());
+        if let Err(e) = result {
+            row["error"] = json!(e);
+        } else {
+            let pid = row["pid"].as_u64();
+            row["rss_kb"] = json!(rss_kb(pid));
+            row["server"] = json!(ctx.status.lock().unwrap().server.clone());
+            if let Some(url) = job["download_url"].as_str() {
+                match fetch_through(socks, url, 60).await {
+                    Ok((n, ms)) => {
+                        row["download_bytes"] = json!(n);
+                        row["download_ms"] = json!(ms);
+                        row["download_mbit"] = json!((n as f64 * 8.0 / 1e6) / (ms.max(1) as f64 / 1000.0));
+                    }
+                    Err(e) => row["download_error"] = json!(e),
+                }
+                row["rss_kb_after_download"] = json!(rss_kb(pid));
+            }
+        }
+        core::disconnect(&app, &ctx, None).await;
+        cycles.push(row);
+        out("bench-result.json", &json!({"done": false, "cycles": cycles}));
+        tokio::time::sleep(pause).await;
+    }
+    let ok: Vec<&Value> = cycles.iter().filter(|c| c["ok"] == true).collect();
+    let median = |key: &str| {
+        let mut v: Vec<u64> = ok.iter().filter_map(|c| c[key].as_u64()).collect();
+        v.sort();
+        v.get(v.len() / 2).copied()
+    };
+    let summary = json!({"cycles": cycles.len(), "ok": ok.len(), "median_total_ms": median("total_ms"), "median_core_ms": median("core_ms"),
+        "median_probe_ms": median("probe_ms"), "median_rss_kb": median("rss_kb"), "median_rss_kb_after_download": median("rss_kb_after_download")});
+    out("bench-result.json", &json!({"done": true, "summary": summary, "cycles": cycles}));
+
+    let soak_secs = job["soak_secs"].as_u64().unwrap_or(0);
+    if soak_secs > 0 {
+        let began = std::time::Instant::now();
+        let url = job["soak_download_url"].as_str().or(job["download_url"].as_str()).map(String::from);
+        let (mut rounds, mut fails, mut crashes, mut bytes, mut max_rss) = (0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut errors: Vec<String> = vec![];
+        while began.elapsed().as_secs() < soak_secs {
+            rounds += 1;
+            match core::connect(app.clone(), ctx.clone(), id.clone()).await {
+                Err(e) => {
+                    fails += 1;
+                    if errors.len() < 50 {
+                        errors.push(format!("{}s connect: {e}", began.elapsed().as_secs()));
+                    }
+                }
+                Ok(()) => {
+                    let pid = ctx.timing.lock().unwrap()["pid"].as_u64();
+                    if let Some(url) = &url {
+                        match fetch_through(socks, url, 60).await {
+                            Ok((n, _)) => bytes += n,
+                            Err(e) => {
+                                fails += 1;
+                                if errors.len() < 50 {
+                                    errors.push(format!("{}s download: {e}", began.elapsed().as_secs()));
+                                }
+                            }
+                        }
+                    }
+                    max_rss = max_rss.max(rss_kb(pid).unwrap_or(0));
+                    let st = ctx.status.lock().unwrap().clone();
+                    if st.error.as_deref().is_some_and(|e| e.contains("неожиданно")) || (st.state == "off" && st.error.is_some()) {
+                        crashes += 1;
+                    }
+                }
+            }
+            core::disconnect(&app, &ctx, None).await;
+            out("bench-soak.json", &json!({"done": false, "secs": began.elapsed().as_secs(), "rounds": rounds, "failures": fails,
+                "core_crashes": crashes, "bytes": bytes, "max_rss_kb": max_rss, "errors": errors}));
+            tokio::time::sleep(pause).await;
+        }
+        out("bench-soak.json", &json!({"done": true, "secs": began.elapsed().as_secs(), "rounds": rounds, "failures": fails,
+            "core_crashes": crashes, "bytes": bytes, "max_rss_kb": max_rss, "errors": errors}));
+    }
+    if job["exit"].as_bool().unwrap_or(true) {
+        app.exit(0);
+    }
+}
+
 /// Refreshes subscriptions that are older than their update interval.
 async fn auto_update(app: AppHandle, ctx: Arc<Ctx>) {
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -665,6 +816,8 @@ pub fn run() {
 
             #[cfg(debug_assertions)]
             tauri::async_runtime::spawn(autotest(handle.clone(), ctx.clone()));
+            #[cfg(debug_assertions)]
+            tauri::async_runtime::spawn(bench(handle.clone(), ctx.clone()));
             tauri::async_runtime::spawn(auto_update(handle.clone(), ctx));
             Ok(())
         })
