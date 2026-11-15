@@ -29,7 +29,7 @@ Quadra is **not a VPN provider**: there is no account to create and no built-in 
 | **Routing without the fight** | Keep your LAN or a country direct, add domain/IP rules, and choose apps and sites to exclude — or the only ones to proxy. |
 | **Make it yours** | Dark and light themes, eight accent palettes and a custom colour. The entire interface, including the map, follows your choice. |
 
-Under the hood, connections are made by **[Xray-core](https://github.com/XTLS/Xray-core)**: REALITY, XHTTP, gRPC, WebSocket and the rest of the Xray ecosystem are supported.
+Under the hood, connections are made by **[sing-box](https://github.com/SagerNet/sing-box)** with our own XHTTP transport added, so REALITY, XHTTP, gRPC and WebSocket servers work as they do in Xray. "Fastest" is sing-box's own URL test that switches to another server when one stops answering. Whatever sing-box cannot do (mKCP, VLESS encryption and a few other Xray-only options) is still run by **[Xray-core](https://github.com/XTLS/Xray-core)**, which ships alongside as the fallback.
 
 ## How it works
 
@@ -39,7 +39,7 @@ Under the hood, connections are made by **[Xray-core](https://github.com/XTLS/Xr
 
 1. **Add an input.** Import a subscription, share link, list or ready-made Xray configuration.
 2. **Choose the route.** Quadra prepares device headers, DNS, exclusions and the connection mode.
-3. **Start the core.** Xray-core handles the protocol and establishes the tunnel.
+3. **Start the core.** sing-box (or Xray-core for what only Xray can do) handles the protocol and establishes the tunnel.
 4. **Verify the exit.** The interface reports success only after a request confirms the connection.
 
 ## Download
@@ -80,7 +80,8 @@ You need **[Node.js](https://nodejs.org) 22+**, **[Rust](https://rustup.rs)** an
 
 ```sh
 npm ci
-node tools/fetch-xray.mjs     # download Xray-core and verify its checksum
+node tools/fetch-singbox.mjs  # build sing-box (our fork, needs Go) and fetch its rule-sets
+node tools/fetch-xray.mjs     # download Xray-core, the fallback core, and verify its checksum
 npm run tauri dev             # run the app
 npm run tauri build           # build the installer
 ```
@@ -98,10 +99,10 @@ cargo test
 |---|---|
 | `src/` | Svelte 5 interface; `lib/MapView.svelte` draws the map and connection animation |
 | `src/app.css` | Theme, accent, sizing and motion variables |
-| `src-tauri/src/` | Rust backend: subscriptions, links, Xray configuration and core lifecycle |
+| `src-tauri/src/` | Rust backend: subscriptions, links, sing-box and Xray configuration, core lifecycle |
 | `src-tauri/src/sys/` | Windows, macOS and Linux integration |
 | `src-tauri/plugins/vpn/` | Android VPN service in Kotlin |
-| `tools/` | Xray fetching, map generation, end-to-end checks and documentation capture |
+| `tools/` | Building sing-box, fetching Xray, map generation, end-to-end checks and benchmarks, documentation capture |
 | `.github/workflows/` | Cross-platform builds, tests, smoke checks, Android E2E and releases |
 
 ### Rebuild the README visuals

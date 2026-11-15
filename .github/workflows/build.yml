@@ -41,8 +41,16 @@ jobs:
 
       - run: npm ci
 
-      - name: Xray-core for this platform
+      - name: Xray-core for this platform (the fallback core)
         run: node tools/fetch-xray.mjs
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: sing-box (our fork, repository in tools/singbox.source)
+        run: node tools/fetch-singbox.mjs
 
       - name: Interface
         run: npm run build

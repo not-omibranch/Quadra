@@ -6,12 +6,33 @@
   `lib/store.svelte.js` the app state, `app.css` every colour, size and speed as a variable.
   `splash.html` + `src/splash.js` are the startup cube's own window.
 - `src-tauri/src/` is the backend: `subs.rs` (subscriptions and the device headers providers
-  require), `links.rs` (share links to Xray outbounds), `config.rs` (the config Xray is started
-  with), `core.rs` (start, confirm, watch, stop), `sys/` (what differs per operating system:
-  system proxy, elevation, clipboard, machine id).
+  require), `links.rs` (share links to Xray-shaped outbounds, the format servers are stored in),
+  `singbox.rs` (that format translated into a sing-box config, plus `needs_xray`: what sing-box
+  cannot do), `config.rs` (the config Xray is started with), `core.rs` (engine choice, start,
+  confirm, watch, stop), `sys/` (what differs per operating system: system proxy, elevation,
+  clipboard, machine id).
+- Two cores. **sing-box** makes the connections; **Xray-core** stays as the fallback for servers
+  `singbox::needs_xray` rejects (mKCP, VLESS encryption, XHTTP with `downloadSettings` or HTTP/3,
+  Xray mux, `noises`...), for XHTTP while "XHTTP через Xray" is on, and when the user picks Xray
+  in Settings. The log's connection line says which core ran and why.
+- `src-tauri/resources/sing-box/` holds our sing-box build and the rule-sets of the "Russia
+  direct" preset (`rules/geosite-category-ru.srs`, `rules/geoip-ru.srs`). Not in git;
+  `node tools/fetch-singbox.mjs` builds it with Go from `../sing-box-xhttp` (our fork with the
+  XHTTP transport) or, when that is not there, from the repository and branch named in
+  `tools/singbox.source` (CI does this). **The fork has to be pushed there** before CI can build:
+  the address in that file is a placeholder until the owner publishes it.
 - `src-tauri/resources/xray/` holds Xray-core and its data files. It is not in git;
   `node tools/fetch-xray.mjs` fills it for the current machine (`--target <triple>` for another).
-  The all-traffic mode needs the automatic routing of Xray 26.9 or newer.
+  The all-traffic mode on Xray needs the automatic routing of Xray 26.9 or newer.
+
+## Measuring connections
+
+Debug builds read `bench.json` from the data folder at start: N connect, check, disconnect
+cycles with timings by stage and the core's memory, optionally a download through the tunnel,
+and a soak loop; results go to `bench-result.json` / `bench-soak.json` and the app exits.
+`tools/bench-linux.sh <job.json> <work dir>` runs it headless under Xvfb with its own data folder
+(the format of the job is at the top of the script). `QUADRA_DUMP=<dir> cargo test dump_configs
+-- --ignored` writes sample sing-box configs to check with `sing-box check -c`.
 
 ## The interface in a browser
 
@@ -48,7 +69,8 @@ There is no Android project in the repository: `npx tauri android init` generate
 `src-tauri/gen/android`, and `node tools/android-prepare.mjs` adjusts it. What is ours lives in
 `src-tauri/plugins/vpn` (the Kotlin VPN service and plugin) and `src-tauri/src/android.rs`.
 
-How it works: the core is the ordinary Xray binary, shipped as `libxray.so` because Android
+How it works: the core is the ordinary Xray binary (sing-box is not built for Android yet; TODO:
+ship our fork per ABI as `libsingbox.so` the same way), shipped as `libxray.so` because Android
 only runs programs from the package's native-library folder (`node tools/fetch-xray.mjs
 --android` puts it there). The VPN service creates the tunnel device and hands its file
 descriptor to Rust, where tun2proxy turns the packets into SOCKS connections to the core.

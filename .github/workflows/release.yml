@@ -59,8 +59,16 @@ jobs:
 
       - run: npm ci
 
-      - name: Xray-core for the target
+      - name: Xray-core for the target (the fallback core)
         run: node tools/fetch-xray.mjs --target ${{ matrix.target }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: sing-box for the target (our fork, repository in tools/singbox.source)
+        run: node tools/fetch-singbox.mjs --target ${{ matrix.target }}
 
       - uses: tauri-apps/tauri-action@v0
         env:
