@@ -89,6 +89,7 @@ fn wide(s: &str) -> Vec<u16> {
 
 pub const PLATFORM: &str = "windows";
 pub const XRAY_BIN: &str = "xray.exe";
+pub const SINGBOX_BIN: &str = "sing-box.exe";
 pub const TUN_NAME: Option<&str> = Some("quadra");
 
 /// A job that kills everything in it when this process goes away, so the core never outlives the app.
@@ -123,7 +124,7 @@ pub fn needs_relaunch_for_tun() -> bool {
 }
 
 /// Unix starts the core for the all-traffic mode through a privileged wrapper; Windows does not.
-pub fn tun_wrapper(_xray: &std::path::Path, _assets: &std::path::Path, _config: &std::path::Path, _run: &std::path::Path) -> Option<tokio::process::Command> {
+pub fn tun_wrapper(_core: &std::path::Path, _args: &[String], _assets: &std::path::Path, _run: &std::path::Path) -> Option<tokio::process::Command> {
     None
 }
 

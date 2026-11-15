@@ -1,7 +1,8 @@
-//! Running Xray: start, confirm the tunnel really carries traffic, watch it, stop it.
+//! Running the core: pick the engine (sing-box, or Xray for what sing-box cannot do), start it,
+//! confirm the tunnel really carries traffic, watch it, stop it.
 
-use crate::model::{Home, Status};
-use crate::{config, emit_status, sys, Ctx};
+use crate::model::{Home, Server, Settings, Status};
+use crate::{config, emit_status, singbox, sys, Ctx};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
@@ -13,9 +14,18 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
+/// Where the running core reports its traffic.
+#[derive(Clone)]
+enum Stats {
+    /// Xray's `metrics` listener (`/debug/vars`).
+    Xray { metrics: u16 },
+    /// sing-box's clash API; `members` maps the auto group's outbounds to server ids.
+    SingBox { clash: u16, secret: String, members: HashMap<String, String> },
+}
+
 pub struct Running {
     child: tokio::process::Child,
-    metrics: u16,
+    stats: Stats,
     /// Started through the privileged wrapper (Unix, all-traffic mode): we cannot kill it,
     /// only ask it to stop.
     wrapped: bool,
@@ -27,17 +37,26 @@ const PROXY_BACKUP: &str = "proxy_backup.json";
 /// The core's output of the current and the previous connection, for looking at afterwards.
 const LOG_FILE: &str = "core.log";
 
+/// sing-box runs at the info level so that its "started" line arrives; its info lines (one per
+/// connection) are dropped unless the user asked for a verbose log.
+fn noise(ctx: &Ctx, line: &str) -> bool {
+    line.starts_with("INFO") && !line.contains("sing-box started") && !ctx.verbose_core.load(Ordering::Relaxed)
+}
+
 fn log(app: &AppHandle, ctx: &Ctx, line: String) {
+    // the core says so itself once every inbound is listening
+    if (line.contains("core: Xray") && line.ends_with("started")) || line.contains("sing-box started") {
+        ctx.core_ready.store(true, Ordering::SeqCst);
+    }
+    if noise(ctx, &line) {
+        return;
+    }
     let mut logs = ctx.logs.lock().unwrap();
     if logs.len() >= 1500 {
         logs.pop_front();
     }
     logs.push_back(line.clone());
     drop(logs);
-    // the core says so itself once every inbound is listening
-    if line.contains("core: Xray") && line.ends_with("started") {
-        ctx.core_ready.store(true, Ordering::SeqCst);
-    }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(ctx.dir.join(LOG_FILE)) {
         use std::io::Write;
         let _ = writeln!(f, "{line}");
@@ -281,7 +300,30 @@ fn traffic_totals(vars: &Value) -> (u64, u64) {
     (up, down)
 }
 
-/// Runs for as long as this connection is the current one: reports speed, notices a dead core.
+/// Up and down totals the core has counted so far.
+async fn totals(client: &reqwest::Client, stats: &Stats) -> Option<(u64, u64)> {
+    match stats {
+        Stats::Xray { metrics } => {
+            let resp = client.get(format!("http://127.0.0.1:{metrics}/debug/vars")).send().await.ok()?;
+            Some(traffic_totals(&resp.json_value().await.ok()?))
+        }
+        Stats::SingBox { clash, secret, .. } => {
+            let resp = client.get(format!("http://127.0.0.1:{clash}/connections")).bearer_auth(secret).send().await.ok()?;
+            let v = resp.json_value().await.ok()?;
+            Some((v["uploadTotal"].as_u64().unwrap_or(0), v["downloadTotal"].as_u64().unwrap_or(0)))
+        }
+    }
+}
+
+/// The server sing-box's auto group is using right now.
+async fn auto_pick(client: &reqwest::Client, clash: u16, secret: &str, members: &HashMap<String, String>) -> Option<String> {
+    let resp = client.get(format!("http://127.0.0.1:{clash}/proxies/{}", singbox::AUTO_TAG)).bearer_auth(secret).send().await.ok()?;
+    let v = resp.json_value().await.ok()?;
+    members.get(v["now"].as_str()?).cloned()
+}
+
+/// Runs for as long as this connection is the current one: reports speed, notices a dead core,
+/// follows the auto group's choice.
 async fn watch(app: AppHandle, ctx: Arc<Ctx>, gen: u64) {
     let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().ok();
     let mut last: Option<(u64, u64, Instant)> = None;
@@ -290,11 +332,11 @@ async fn watch(app: AppHandle, ctx: Arc<Ctx>, gen: u64) {
         if ctx.gen.load(Ordering::SeqCst) != gen {
             return;
         }
-        let metrics = {
+        let stats = {
             let mut core = ctx.core.lock().await;
             match core.as_mut() {
                 Some(r) => match r.child.try_wait() {
-                    Ok(None) => r.metrics,
+                    Ok(None) => r.stats.clone(),
                     _ => {
                         drop(core);
                         disconnect(&app, &ctx, Some("ядро неожиданно остановилось, подробности в журнале".into())).await;
@@ -305,9 +347,18 @@ async fn watch(app: AppHandle, ctx: Arc<Ctx>, gen: u64) {
             }
         };
         let Some(client) = &client else { continue };
-        let Ok(resp) = client.get(format!("http://127.0.0.1:{metrics}/debug/vars")).send().await else { continue };
-        let Ok(vars) = resp.json_value().await else { continue };
-        let (up, down) = traffic_totals(&vars);
+        if let Stats::SingBox { clash, secret, members } = &stats {
+            if !members.is_empty() {
+                if let Some(id) = auto_pick(client, *clash, secret, members).await {
+                    let current = ctx.status.lock().unwrap().server.clone();
+                    if ctx.gen.load(Ordering::SeqCst) == gen && current.as_deref() != Some(id.as_str()) {
+                        log(&app, &ctx, format!("авто: теперь {}", server_name(&ctx, &id)));
+                        set_status(&app, &ctx, |s| s.server = Some(id));
+                    }
+                }
+            }
+        }
+        let Some((up, down)) = totals(client, &stats).await else { continue };
         let now = Instant::now();
         if let Some((pu, pd, pt)) = last {
             let dt = now.duration_since(pt).as_secs_f64().max(0.2);
@@ -318,6 +369,10 @@ async fn watch(app: AppHandle, ctx: Arc<Ctx>, gen: u64) {
         }
         last = Some((up, down, now));
     }
+}
+
+fn server_name(ctx: &Ctx, id: &str) -> String {
+    ctx.data.lock().unwrap().servers.iter().find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_else(|| id.to_string())
 }
 
 trait JsonValue {
@@ -331,6 +386,86 @@ impl JsonValue for reqwest::Response {
     }
 }
 
+/// Why this connection has to be made by Xray rather than sing-box, if it has to.
+fn xray_reason(ctx: &Ctx, server: &Server, settings: &Settings) -> Option<String> {
+    if cfg!(target_os = "android") {
+        return Some("sing-box для Android ещё не собран".into());
+    }
+    if !ctx.singbox.join(sys::SINGBOX_BIN).is_file() {
+        return Some("sing-box не найден рядом с приложением".into());
+    }
+    if settings.core == "xray" {
+        return Some("так выбрано в настройках".into());
+    }
+    if let Some(r) = singbox::needs_xray(server) {
+        return Some(format!("sing-box не умеет: {r}"));
+    }
+    if settings.xhttp_via_xray && singbox::is_xhttp(server) {
+        return Some("XHTTP идёт через Xray (настройка)".into());
+    }
+    None
+}
+
+/// Servers for "Авто, самый быстрый": everything sing-box can carry, the ones with a known
+/// ping first (fastest first), at most 30.
+fn auto_candidates(ctx: &Ctx, settings: &Settings) -> Vec<Server> {
+    let d = ctx.data.lock().unwrap();
+    let pings = ctx.pings.lock().unwrap();
+    let mut list: Vec<(i32, Server)> = d.servers.iter()
+        .filter(|s| singbox::primary(s).is_some_and(|o| singbox::outbound(&o, "x").is_ok()))
+        .filter(|s| !(settings.xhttp_via_xray && singbox::is_xhttp(s)))
+        .map(|s| (pings.get(&s.id).copied().filter(|p| *p > 0).unwrap_or(i32::MAX), s.clone()))
+        .collect();
+    list.sort_by_key(|(p, _)| *p);
+    list.into_iter().take(30).map(|(_, s)| s).collect()
+}
+
+/// The single server the UI would pick for "auto": the lowest TCP ping.
+fn fastest(ctx: &Ctx) -> Option<String> {
+    let d = ctx.data.lock().unwrap();
+    let pings = ctx.pings.lock().unwrap();
+    d.servers.iter().filter_map(|s| pings.get(&s.id).filter(|p| **p > 0).map(|p| (*p, s.id.clone()))).min().map(|(_, id)| id)
+        .or_else(|| d.servers.first().map(|s| s.id.clone()))
+}
+
+fn random_secret() -> String {
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    crate::subs::short_hash(&format!("{t}-{}-{:p}", std::process::id(), &t))
+}
+
+/// A server whose addresses have been looked up and written in as numbers.
+async fn pinned(ctx: &Ctx, server: &Server) -> (Server, usize, usize) {
+    let mut out = server.clone();
+    let (found, asked) = match (&server.config, &server.outbound) {
+        (Some(c), _) => {
+            let mut c = c.clone();
+            let r = resolve_servers(ctx, &mut c).await;
+            out.config = Some(c);
+            r
+        }
+        (None, Some(o)) => {
+            let mut wrap = json!({"outbounds": [o]});
+            let r = resolve_servers(ctx, &mut wrap).await;
+            out.outbound = Some(wrap["outbounds"][0].clone());
+            r
+        }
+        _ => (0, 0),
+    };
+    (out, found, asked)
+}
+
+/// What the connection is about to start.
+struct Plan {
+    cfg: Value,
+    bin: std::path::PathBuf,
+    args: Vec<String>,
+    stats: Stats,
+    engine: &'static str,
+    notes: Vec<String>,
+    found: usize,
+    asked: usize,
+}
+
 pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), String> {
     let began = Instant::now();
     let gen = ctx.gen.fetch_add(1, Ordering::SeqCst) + 1;
@@ -339,16 +474,33 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         return Ok(()); // a newer request is already waiting its turn
     }
     stop(&ctx).await;
-    let (server, settings) = {
+    let settings = ctx.data.lock().unwrap().settings.clone();
+    // "auto": sing-box's urltest group over many servers; when that is not possible, the one
+    // server with the lowest ping, as before
+    let mut group: Vec<Server> = vec![];
+    let id = if id == "auto" {
+        let candidates = auto_candidates(&ctx, &settings);
+        let usable = !cfg!(target_os = "android") && settings.core != "xray" && ctx.singbox.join(sys::SINGBOX_BIN).is_file();
+        if usable && !candidates.is_empty() {
+            let first = candidates[0].id.clone();
+            group = candidates;
+            first
+        } else {
+            fastest(&ctx).ok_or("нет серверов")?
+        }
+    } else {
+        id
+    };
+    let server = {
         let d = ctx.data.lock().unwrap();
-        let server = d.servers.iter().find(|s| s.id == id).cloned().ok_or("сервер не найден")?;
-        (server, d.settings.clone())
+        d.servers.iter().find(|s| s.id == id).cloned().ok_or("сервер не найден")?
     };
     // a phone has one mode: everything through the system VPN
     let tun = settings.mode == "tun" || cfg!(target_os = "android");
     // ...and there the tunnel device is ours, not the core's (see android.rs)
     let core_tun = tun && !cfg!(target_os = "android");
     set_status(&app, &ctx, |s| *s = Status { state: "connecting".into(), server: Some(id.clone()), tun, ..Default::default() });
+    ctx.verbose_core.store(matches!(settings.log_level.as_str(), "info" | "debug"), Ordering::SeqCst);
 
     let fail = |msg: String| {
         let (app, ctx) = (app.clone(), ctx.clone());
@@ -382,41 +534,82 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
             return fail(format!("порт {port} занят другой программой: смени его в настройках")).await;
         }
     }
-    let metrics = free_port().await;
-    let mut cfg = match config::build(&server, &settings, core_tun, metrics) {
-        Ok(c) => c,
-        Err(e) => return fail(e).await,
-    };
-    let lookup = Instant::now();
-    let (found, asked) = resolve_servers(&ctx, &mut cfg).await;
-    let lookup_ms = lookup.elapsed().as_millis();
     let run_dir = ctx.dir.join("run");
     let _ = std::fs::create_dir_all(&run_dir);
     let cfg_path = run_dir.join("config.json");
-    if let Err(e) = std::fs::write(&cfg_path, serde_json::to_vec(&cfg).unwrap_or_default()) {
+    let cfg_arg = cfg_path.to_string_lossy().to_string();
+    let lookup = Instant::now();
+    let reason = if group.is_empty() { xray_reason(&ctx, &server, &settings) } else { None };
+    let plan = match &reason {
+        Some(_) => {
+            let metrics = free_port().await;
+            let mut cfg = match config::build(&server, &settings, core_tun, metrics) {
+                Ok(c) => c,
+                Err(e) => return fail(e).await,
+            };
+            let (found, asked) = resolve_servers(&ctx, &mut cfg).await;
+            Plan { cfg, bin: ctx.xray.join(sys::XRAY_BIN), args: vec!["run".into(), "-c".into(), cfg_arg.clone()],
+                   stats: Stats::Xray { metrics }, engine: "Xray", notes: vec![], found, asked }
+        }
+        None => {
+            let clash = free_port().await;
+            let secret = random_secret();
+            let rules = ctx.singbox.join("rules");
+            let local = singbox::Local { tun: core_tun, clash_port: clash, secret: &secret, rules_dir: &rules };
+            let (built, found, asked) = if group.is_empty() {
+                let (srv, found, asked) = pinned(&ctx, &server).await;
+                (singbox::build(&srv, &settings, &local), found, asked)
+            } else {
+                let mut wrap = json!({"outbounds": group.iter().filter_map(singbox::primary).collect::<Vec<_>>()});
+                let (found, asked) = resolve_servers(&ctx, &mut wrap).await;
+                let mut pinned_group = vec![];
+                let mut k = 0;
+                for s in &group {
+                    if singbox::primary(s).is_none() {
+                        continue;
+                    }
+                    pinned_group.push(Server { outbound: Some(wrap["outbounds"][k].clone()), config: None, ..s.clone() });
+                    k += 1;
+                }
+                (singbox::build_auto(&pinned_group, &settings, &local), found, asked)
+            };
+            let built = match built {
+                Ok(b) => b,
+                Err(e) => return fail(e).await,
+            };
+            Plan { cfg: built.config, bin: ctx.singbox.join(sys::SINGBOX_BIN),
+                   args: vec!["run".into(), "--disable-color".into(), "-c".into(), cfg_arg.clone()],
+                   stats: Stats::SingBox { clash, secret, members: built.members }, engine: "sing-box", notes: built.notes, found, asked }
+        }
+    };
+    let lookup_ms = lookup.elapsed().as_millis();
+    if let Err(e) = std::fs::write(&cfg_path, serde_json::to_vec(&plan.cfg).unwrap_or_default()) {
         return fail(format!("не удалось записать конфигурацию: {e}")).await;
     }
 
-    let xray = ctx.xray.join(sys::XRAY_BIN);
     ctx.core_ready.store(false, Ordering::SeqCst);
     let started = Instant::now();
-    let wrapper = if core_tun && !sys::is_admin() { sys::tun_wrapper(&xray, &ctx.assets, &cfg_path, &run_dir) } else { None };
+    let wrapper = if core_tun && !sys::is_admin() { sys::tun_wrapper(&plan.bin, &plan.args, &ctx.assets, &run_dir) } else { None };
     let wrapped = wrapper.is_some();
     if core_tun && cfg!(unix) && !wrapped && !sys::is_admin() {
         return fail("для режима «весь трафик» нужен pkexec (пакет polkit): установи его или выбери другой режим".into()).await;
     }
     let mut cmd = wrapper.unwrap_or_else(|| {
-        let mut c = tokio::process::Command::new(&xray);
-        c.arg("run").arg("-c").arg(&cfg_path).current_dir(&ctx.assets).env("XRAY_LOCATION_ASSET", &ctx.assets);
+        let mut c = tokio::process::Command::new(&plan.bin);
+        c.args(&plan.args).current_dir(&run_dir).env("XRAY_LOCATION_ASSET", &ctx.assets);
+        if plan.engine == "Xray" {
+            c.current_dir(&ctx.assets);
+        }
         c
     });
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     sys::prepare(&mut cmd);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
-        Err(e) => return fail(format!("не удалось запустить ядро: {e}")).await,
+        Err(e) => return fail(format!("не удалось запустить ядро {}: {e}", plan.engine)).await,
     };
     sys::adopt(&child);
+    let pid = child.id();
     if wrapped {
         // the wrapper sends the core's output to a file; follow it
         let (app, ctx, path) = (app.clone(), ctx.clone(), run_dir.join("core.out"));
@@ -439,7 +632,16 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     if std::fs::metadata(&log_path).map(|m| m.len() > 512 * 1024).unwrap_or(false) {
         let _ = std::fs::rename(&log_path, ctx.dir.join("core.old.log"));
     }
-    log(&app, &ctx, format!("--- подключение: {} | режим {} | {} ---", server.name, if tun { "tun" } else { settings.mode.as_str() }, if sys::is_admin() { "администратор" } else { "обычные права" }));
+    let what = if group.is_empty() { server.name.clone() } else { format!("авто из {} серверов", group.len()) };
+    let engine_note = match &reason {
+        Some(r) => format!("ядро Xray: {r}"),
+        None => "ядро sing-box".into(),
+    };
+    log(&app, &ctx, format!("--- подключение: {what} | режим {} | {} | {engine_note} ---", if tun { "tun" } else { settings.mode.as_str() },
+        if sys::is_admin() { "администратор" } else { "обычные права" }));
+    for n in &plan.notes {
+        log(&app, &ctx, n.clone());
+    }
     if let Some(out) = child.stdout.take() {
         let (app, ctx) = (app.clone(), ctx.clone());
         tokio::spawn(async move {
@@ -459,7 +661,8 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         });
     }
 
-    *ctx.core.lock().await = Some(Running { child, metrics, wrapped, stopper: None });
+    let stats = plan.stats.clone();
+    *ctx.core.lock().await = Some(Running { child, stats, wrapped, stopper: None });
     drop(launch);
     // a password prompt may stand between us and the core
     let patience = Duration::from_secs(if wrapped { 120 } else { 10 });
@@ -474,7 +677,8 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         };
         if exited {
             tokio::time::sleep(Duration::from_millis(120)).await;
-            let reason = ctx.logs.lock().unwrap().iter().rev().find(|l| l.contains("Failed") || l.contains("failed") || l.contains("rror"))
+            let reason = ctx.logs.lock().unwrap().iter().rev()
+                .find(|l| l.contains("Failed") || l.contains("failed") || l.contains("rror") || l.starts_with("FATAL") || l.starts_with("ERROR"))
                 .cloned().unwrap_or_else(|| "подробности в журнале".into());
             return fail(format!("ядро не запустилось: {}", reason.chars().take(220).collect::<String>())).await;
         }
@@ -494,7 +698,9 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     }
 
     let core_ms = started.elapsed().as_millis();
+    let probe_began = Instant::now();
     let ms = probe(settings.socks_port).await;
+    let probe_ms = probe_began.elapsed().as_millis();
     if ctx.gen.load(Ordering::SeqCst) != gen {
         return Ok(());
     }
@@ -528,9 +734,12 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
             }
         }
     }
+    let (found, asked) = (plan.found, plan.asked);
     log(&app, &ctx, format!(
-        "подключено за {} мс: адреса {found} из {asked} за {lookup_ms} мс, ядро {core_ms} мс, проверка связи {ms} мс",
-        began.elapsed().as_millis()));
+        "подключено за {} мс: адреса {found} из {asked} за {lookup_ms} мс, ядро {} {core_ms} мс, проверка связи {ms} мс",
+        began.elapsed().as_millis(), plan.engine));
+    *ctx.timing.lock().unwrap() = json!({"engine": plan.engine, "total_ms": began.elapsed().as_millis() as u64,
+        "lookup_ms": lookup_ms as u64, "core_ms": core_ms as u64, "probe_ms": probe_ms as u64, "first_answer_ms": ms, "pid": pid});
     set_status(&app, &ctx, |s| {
         s.state = "on".into();
         s.since = crate::now();

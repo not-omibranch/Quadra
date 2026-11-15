@@ -5,6 +5,9 @@ src-tauri/target-next/
 src-tauri/gen/
 # Xray-core and its data files: fetched by tools/fetch-xray.mjs
 src-tauri/resources/xray/
+# sing-box (our fork) and its rule-sets: built by tools/fetch-singbox.mjs
+src-tauri/resources/sing-box/
+.singbox-src/
 # Android: the generated Gradle project, and the core fetched into the plugin by tools/fetch-xray.mjs
 src-tauri/plugins/vpn/android/src/main/jniLibs/
 src-tauri/plugins/vpn/android/src/main/assets/

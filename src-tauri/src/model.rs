@@ -50,6 +50,10 @@ pub struct Settings {
     pub home: Option<Home>,
     pub sub_update_hours: u32,
     pub log_level: String,
+    /// "auto": sing-box, Xray only for what sing-box cannot do. "xray": always Xray.
+    pub core: String,
+    /// XHTTP servers go through Xray while our sing-box XHTTP transport is new.
+    pub xhttp_via_xray: bool,
     pub selected: Option<String>,
     pub collapsed: Vec<String>,
 }
@@ -79,6 +83,8 @@ impl Default for Settings {
             home: None,
             sub_update_hours: 12,
             log_level: "warning".into(),
+            core: "auto".into(),
+            xhttp_via_xray: true,
             selected: None,
             collapsed: vec![],
         }

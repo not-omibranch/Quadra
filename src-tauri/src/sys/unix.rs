@@ -12,6 +12,7 @@ pub const PLATFORM: &str = if cfg!(target_os = "macos") {
 };
 /// On Android the core is packaged as a native library, the only place a program may be run from.
 pub const XRAY_BIN: &str = if cfg!(target_os = "android") { "libxray.so" } else { "xray" };
+pub const SINGBOX_BIN: &str = "sing-box";
 
 /// Model and system version, told to us by the Android side at startup.
 static DEVICE: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
@@ -65,20 +66,21 @@ pub fn relaunch_elevated(_args: &str) -> bool {
 
 const TUN_FLAG: &str = "tun.flag";
 
-/// The all-traffic mode needs root for the tunnel device and the routes. The core is started
-/// by a small script run through the system's own password prompt (pkexec, or the macOS
-/// administrator dialog). We cannot signal a root process afterwards, so the script watches a
+/// The all-traffic mode needs root for the tunnel device and the routes. The core (`core` run
+/// with `args`) is started by a small script run through the system's own password prompt
+/// (pkexec, or the macOS administrator dialog). We cannot signal a root process afterwards, so the script watches a
 /// flag file in our folder and stops the core when it disappears.
-pub fn tun_wrapper(xray: &Path, assets: &Path, config: &Path, run: &Path) -> Option<tokio::process::Command> {
+pub fn tun_wrapper(core: &Path, args: &[String], assets: &Path, run: &Path) -> Option<tokio::process::Command> {
     let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', r"'\''"));
+    let args = args.iter().map(|a| quote(Path::new(a))).collect::<Vec<_>>().join(" ");
     let flag = run.join(TUN_FLAG);
     let log = run.join("core.out");
     let script = run.join("tun.sh");
     let body = format!(
-        "#!/bin/sh\nexport XRAY_LOCATION_ASSET={assets}\n{xray} run -c {config} > {log} 2>&1 &\npid=$!\n\
+        "#!/bin/sh\nexport XRAY_LOCATION_ASSET={assets}\n{core} {args} > {log} 2>&1 &\npid=$!\n\
          trap 'kill $pid 2>/dev/null' EXIT INT TERM\n\
          while [ -e {flag} ] && kill -0 $pid 2>/dev/null; do sleep 0.3; done\nkill $pid 2>/dev/null\n",
-        assets = quote(assets), xray = quote(xray), config = quote(config), log = quote(&log), flag = quote(&flag));
+        assets = quote(assets), core = quote(core), log = quote(&log), flag = quote(&flag));
     std::fs::write(&script, body).ok()?;
     std::fs::write(&flag, b"").ok()?;
     let _ = std::fs::write(&log, b"");

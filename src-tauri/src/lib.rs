@@ -9,6 +9,7 @@ mod geoip;
 mod links;
 mod model;
 mod names;
+mod singbox;
 mod subs;
 mod sys;
 
@@ -29,8 +30,10 @@ use tauri_plugin_autostart::ManagerExt;
 
 pub struct Ctx {
     pub dir: PathBuf,
-    /// Where the core binary is.
+    /// Where the Xray binary is.
     pub xray: PathBuf,
+    /// Where the sing-box binary and its rule-sets are.
+    pub singbox: PathBuf,
     /// Where geoip.dat and geosite.dat are (next to the binary, except on Android).
     pub assets: PathBuf,
     pub data: Mutex<Data>,
@@ -43,6 +46,10 @@ pub struct Ctx {
     pub gen: AtomicU64,
     /// The core that is starting has reported that it is up.
     pub core_ready: AtomicBool,
+    /// Pass sing-box's per-connection lines on to the log (the user asked for a verbose level).
+    pub verbose_core: AtomicBool,
+    /// How long the last successful connection took, by stage (for the debug bench).
+    pub timing: Mutex<Value>,
     /// Server names already looked up, and when (see core::resolve_servers).
     pub resolved: Mutex<HashMap<String, (std::net::IpAddr, std::time::Instant)>>,
     pub hidden: bool,
@@ -458,6 +465,7 @@ async fn autotest(app: AppHandle, ctx: Arc<Ctx>) {
         d.servers.extend(servers);
         d.settings.selected = Some(id.clone());
         d.settings.geo_lookup = false;
+        apply_overrides(&mut d.settings, &job["settings"]);
     }
     changed(&app, &ctx);
     if job["connect"].as_bool().unwrap_or(false) {
@@ -488,6 +496,19 @@ async fn autotest(app: AppHandle, ctx: Arc<Ctx>) {
         }
     } else {
         report(json!({"stage": "imported"}));
+    }
+}
+
+/// Debug hooks: `"settings": {...}` in a job file overrides those settings (mode, core, ports...).
+#[cfg(debug_assertions)]
+fn apply_overrides(settings: &mut Settings, overrides: &Value) {
+    let Some(o) = overrides.as_object() else { return };
+    let mut v = serde_json::to_value(&*settings).unwrap_or_default();
+    for (k, x) in o {
+        v[k] = x.clone();
+    }
+    if let Ok(s) = serde_json::from_value(v) {
+        *settings = s;
     }
 }
 
@@ -540,9 +561,10 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             #[cfg(not(target_os = "android"))]
-            let (xray, assets) = {
-                let d = app.path().resource_dir()?.join("resources").join("xray");
-                (d.clone(), d)
+            let (xray, assets, singbox) = {
+                let res = app.path().resource_dir()?.join("resources");
+                let d = res.join("xray");
+                (d.clone(), d, res.join("sing-box"))
             };
             // On Android the core ships as a native library of the package, and its data files
             // are unpacked into the app's own folder by the plugin.
@@ -550,7 +572,8 @@ pub fn run() {
             let (xray, assets) = {
                 let info = android::info(app.handle()).map_err(std::io::Error::other)?;
                 sys::set_device(&info.model, &info.release);
-                (PathBuf::from(&info.native_dir), PathBuf::from(&info.files_dir).join("xray"))
+                // sing-box is not shipped for Android yet: connections there stay on Xray
+                (PathBuf::from(&info.native_dir), PathBuf::from(&info.files_dir).join("xray"), PathBuf::new())
             };
             let tiling = sys::tiling_wm();
             let saved: Option<Data> = std::fs::read(dir.join("state.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
@@ -566,10 +589,11 @@ pub fn run() {
             {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(xray.join(sys::XRAY_BIN), std::fs::Permissions::from_mode(0o755));
+                let _ = std::fs::set_permissions(singbox.join(sys::SINGBOX_BIN), std::fs::Permissions::from_mode(0o755));
             }
             let with_splash = cfg!(desktop) && !hidden && !tiling;
             let ctx = Arc::new(Ctx {
-                dir, xray, assets,
+                dir, xray, assets, singbox,
                 data: Mutex::new(data),
                 pings: Mutex::new(HashMap::new()),
                 status: Mutex::new(Status { state: "off".into(), ..Default::default() }),
@@ -578,6 +602,8 @@ pub fn run() {
                 launch: tokio::sync::Mutex::new(()),
                 gen: AtomicU64::new(0),
                 core_ready: AtomicBool::new(false),
+                verbose_core: AtomicBool::new(false),
+                timing: Mutex::new(Value::Null),
                 resolved: Mutex::new(HashMap::new()),
                 hidden, elevated, tiling,
                 splash: AtomicBool::new(with_splash),
