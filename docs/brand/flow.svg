@@ -27,7 +27,7 @@
   <path d="M330 206H394" class="line"/>
   <rect x="410" y="116" width="280" height="180" rx="12" class="card active"/>
   <rect x="434" y="140" width="34" height="34" rx="8" fill="url(#accent)"/>
-  <path d="M443 150h16v16h-16zM447 146h16v16h-16z" fill="none" stroke="#092313" stroke-width="2"/>
+  <g><rect x="440" y="146" width="6" height="6" fill="#092313" fill-opacity="0.38"/><rect x="448" y="146" width="6" height="6" fill="#092313" fill-opacity="0.62"/><rect x="456" y="146" width="6" height="6" fill="#092313" fill-opacity="0.38"/><rect x="440" y="154" width="6" height="6" fill="#092313" fill-opacity="0.62"/><rect x="448" y="154" width="6" height="6" fill="#092313" fill-opacity="1"/><rect x="456" y="154" width="6" height="6" fill="#092313" fill-opacity="0.62"/><rect x="440" y="162" width="6" height="6" fill="#092313" fill-opacity="0.38"/><rect x="448" y="162" width="6" height="6" fill="#092313" fill-opacity="0.62"/><rect x="456" y="162" width="6" height="6" fill="#092313" fill-opacity="0.38"/></g>
   <text x="484" y="165" class="tag">02 · QUADRA</text>
   <text x="438" y="214" class="name">Configure &amp; route</text>
   <text x="438" y="245" class="desc">Device headers, exclusions,</text>
@@ -36,9 +36,9 @@
   <path d="M702 206H766" class="line"/>
   <rect x="782" y="132" width="240" height="148" rx="12" class="card"/>
   <text x="810" y="165" class="tag">03 · CORE</text>
-  <text x="810" y="204" class="name">Xray-core</text>
+  <text x="810" y="204" class="name">sing-box</text>
   <text x="810" y="235" class="desc">REALITY, XHTTP, gRPC,</text>
-  <text x="810" y="257" class="desc">WebSocket and more</text>
+  <text x="810" y="257" class="desc">WebSocket; Xray as fallback</text>
 
   <path d="M1034 206H1098" class="line"/>
   <rect x="1114" y="132" width="238" height="148" rx="12" class="card"/>

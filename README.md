@@ -34,7 +34,7 @@ Under the hood, connections are made by **[sing-box](https://github.com/SagerNet
 ## How it works
 
 <div align="center">
-  <img src="docs/img/how-it-works.png" alt="Subscription or link → Quadra configuration and routing → Xray-core → your server" width="100%">
+  <img src="docs/img/how-it-works.png" alt="Subscription or link → Quadra configuration and routing → sing-box (Xray as fallback) → your server" width="100%">
 </div>
 
 1. **Add an input.** Import a subscription, share link, list or ready-made Xray configuration.
