@@ -5,6 +5,7 @@
 mod android;
 mod config;
 mod core;
+mod geo;
 mod geoip;
 mod links;
 mod model;
@@ -34,8 +35,10 @@ pub struct Ctx {
     pub xray: PathBuf,
     /// Where the sing-box binary and its rule-sets are.
     pub singbox: PathBuf,
-    /// Where geoip.dat and geosite.dat are (next to the binary, except on Android).
+    /// Where the app's own geoip.dat and geosite.dat are (next to the binary, except on Android).
     pub assets: PathBuf,
+    /// Geo data files, the folder Xray reads them from, rule-sets made from them (geo.rs).
+    pub geo: Arc<geo::Geo>,
     pub data: Mutex<Data>,
     pub pings: Mutex<HashMap<String, i32>>,
     pub status: Mutex<Status>,
@@ -431,6 +434,70 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
+// ---------------------------------------------------------------- geo data (docs/geo-api.md)
+
+/// Downloads go through the running core when there is one.
+fn geo_route(ctx: &Ctx) -> Option<u16> {
+    let on = ctx.status.lock().unwrap().state == "on";
+    on.then(|| ctx.data.lock().unwrap().settings.socks_port)
+}
+
+#[tauri::command]
+fn geo_list(ctx: Shared) -> Vec<Value> {
+    ctx.geo.list()
+}
+
+#[tauri::command]
+async fn geo_add_file(ctx: Shared<'_>, path: String) -> Result<Value, String> {
+    let g = ctx.geo.clone();
+    tokio::task::spawn_blocking(move || g.add_file(std::path::Path::new(&path))).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn geo_add_url(ctx: Shared<'_>, url: String, auto_update: bool) -> Result<Value, String> {
+    let via = geo_route(&ctx);
+    ctx.geo.add_url(&url, auto_update, via).await
+}
+
+#[tauri::command]
+fn geo_remove(ctx: Shared, id: String) -> Result<(), String> {
+    ctx.geo.remove(&id)
+}
+
+#[tauri::command]
+fn geo_set_enabled(ctx: Shared, id: String, enabled: bool) -> Result<Value, String> {
+    ctx.geo.set_enabled(&id, enabled)
+}
+
+#[tauri::command]
+async fn geo_update(ctx: Shared<'_>, id: Option<String>) -> Result<Vec<Value>, String> {
+    let via = geo_route(&ctx);
+    Ok(ctx.geo.update(id.as_deref(), via).await)
+}
+
+#[tauri::command]
+async fn geo_categories(ctx: Shared<'_>, id: String, query: Option<String>, limit: Option<usize>) -> Result<Vec<Value>, String> {
+    let g = ctx.geo.clone();
+    tokio::task::spawn_blocking(move || g.categories(&id, query.as_deref(), limit)).await.map_err(|e| e.to_string())?
+}
+
+/// Copies the app's own geo files into place, then keeps the downloaded ones fresh (daily,
+/// with ETag / If-Modified-Since) while settings.geo_auto_update is on.
+async fn geo_auto_update(ctx: Arc<Ctx>) {
+    let g = ctx.geo.clone();
+    let _ = tokio::task::spawn_blocking(move || g.sync_defaults()).await;
+    tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+    loop {
+        if ctx.data.lock().unwrap().settings.geo_auto_update {
+            for id in ctx.geo.due() {
+                let via = geo_route(&ctx);
+                let _ = ctx.geo.update_one(&id, via).await;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1800)).await;
+    }
+}
+
 fn show_main(app: &AppHandle) {
     #[cfg(desktop)]
     if let Some(w) = app.get_webview_window("main") {
@@ -752,8 +819,10 @@ pub fn run() {
                 let _ = std::fs::set_permissions(singbox.join(sys::SINGBOX_BIN), std::fs::Permissions::from_mode(0o755));
             }
             let with_splash = cfg!(desktop) && !hidden && !tiling;
+            let singbox_bin = (!singbox.as_os_str().is_empty()).then(|| singbox.join(sys::SINGBOX_BIN));
+            let geo = Arc::new(geo::Geo::open(dir.join("geo"), assets.clone(), singbox_bin));
             let ctx = Arc::new(Ctx {
-                dir, xray, assets, singbox,
+                dir, xray, assets, singbox, geo,
                 data: Mutex::new(data),
                 pings: Mutex::new(HashMap::new()),
                 status: Mutex::new(Status { state: "off".into(), ..Default::default() }),
@@ -827,6 +896,7 @@ pub fn run() {
             tauri::async_runtime::spawn(autotest(handle.clone(), ctx.clone()));
             #[cfg(debug_assertions)]
             tauri::async_runtime::spawn(bench(handle.clone(), ctx.clone()));
+            tauri::async_runtime::spawn(geo_auto_update(ctx.clone()));
             tauri::async_runtime::spawn(auto_update(handle.clone(), ctx));
             Ok(())
         })
@@ -842,7 +912,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_state, ready, splash, save_settings, add_subscription, refresh_subscription, delete_subscription, delete_server,
-            import_text, connect, disconnect, ping, locate_home, share, open_url, list_apps, clipboard, get_logs, clear_logs, relaunch_admin, quit
+            import_text, connect, disconnect, ping, locate_home, share, open_url, list_apps, clipboard, get_logs, clear_logs, relaunch_admin, quit,
+            geo_list, geo_add_file, geo_add_url, geo_remove, geo_set_enabled, geo_update, geo_categories
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

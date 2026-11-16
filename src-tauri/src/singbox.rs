@@ -6,7 +6,7 @@
 //! express is reported by [`needs_xray`]; such a server is still run by Xray.
 
 use crate::model::{Server, Settings};
-use crate::sys;
+use crate::{geo, sys};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -39,6 +39,9 @@ pub struct Local<'a> {
     pub secret: &'a str,
     /// Folder with the shipped `.srs` rule-sets.
     pub rules_dir: &'a Path,
+    /// Geo data for `geosite:` / `geoip:` / `ext:` / `ruleset:` refs beyond the shipped sets
+    /// (converted into rule-sets on demand). None: only the shipped sets.
+    pub geo: Option<&'a geo::Resolver>,
 }
 
 /// A config plus what was left out of it on the way (shown in the log).
@@ -47,6 +50,10 @@ pub struct Built {
     pub notes: Vec<String>,
     /// For the "auto" group: outbound tag -> server id.
     pub members: HashMap<String, String>,
+    /// Geo refs nothing was found for; the rules that needed them were dropped.
+    pub missing: Vec<String>,
+    /// Geo refs that resolve but whose rule-set is still being made; left out this time.
+    pub pending: Vec<String>,
 }
 
 fn s(v: &Value) -> &str {
@@ -401,7 +408,7 @@ fn is_proxy(ob: &Value) -> bool {
 /// What sing-box with our fork cannot do for this server; such servers are run by Xray.
 pub fn needs_xray(server: &Server) -> Option<String> {
     match (&server.config, &server.outbound) {
-        (Some(c), _) => full(c, &Settings::default(), &Local { tun: false, clash_port: 0, probe_port: 0, secret: "", rules_dir: Path::new("") }).err(),
+        (Some(c), _) => full(c, &Settings::default(), &Local { tun: false, clash_port: 0, probe_port: 0, secret: "", rules_dir: Path::new(""), geo: None }).err(),
         (None, Some(o)) => outbound(o, "proxy").err(),
         _ => Some("у сервера нет конфигурации".into()),
     }
@@ -423,57 +430,105 @@ fn rule_set_entry(name: &str, dir: &Path) -> Value {
     json!({"type": "local", "tag": name, "format": "binary", "path": dir.join(format!("{name}.srs")).to_string_lossy()})
 }
 
+/// The shipped rule-set a plain `geosite:` / `geoip:` ref stands for, if the app has one
+/// (an empty `dir` means "assume it is there", for checks that only look at the config).
+pub fn shipped_set(raw: &str, dir: &Path) -> Option<String> {
+    let name = match geo::parse_ref(raw)? {
+        geo::Ref::Site { file: None, tag, attrs } if attrs.is_empty() => format!("geosite-{}", tag.to_lowercase()),
+        geo::Ref::Ip { file: None, tag, invert: false } => format!("geoip-{}", tag.to_lowercase()),
+        _ => return None,
+    };
+    let there = dir.as_os_str().is_empty() || dir.join(format!("{name}.srs")).is_file();
+    (SHIPPED_RULE_SETS.contains(&name.as_str()) && there).then_some(name)
+}
+
 /// Collects the rule-sets a config refers to.
 struct Sets<'a> {
     dir: &'a Path,
-    used: Vec<String>,
+    geo: Option<&'a geo::Resolver>,
+    /// Tag → `route.rule_set` entry, in the order first used.
+    used: Vec<(String, Value)>,
+    /// Refs nothing was found for.
+    missing: Vec<String>,
+    /// Refs whose rule-set is still being made (in the background, for the next connection).
+    pending: Vec<String>,
 }
 
-impl Sets<'_> {
-    fn want(&mut self, name: String, notes: &mut Vec<String>) -> Option<String> {
-        if !SHIPPED_RULE_SETS.contains(&name.as_str()) {
-            notes.push(format!("правило {name} пропущено: такого набора в приложении нет"));
-            return None;
+impl<'a> Sets<'a> {
+    fn new(local: &Local<'a>) -> Sets<'a> {
+        Sets { dir: local.rules_dir, geo: local.geo, used: vec![], missing: vec![], pending: vec![] }
+    }
+
+    /// Adds a rule-set once; the same tag for a different file gets a suffix.
+    fn add(&mut self, tag: String, mut entry: Value) -> String {
+        let mut t = tag.clone();
+        for n in 2.. {
+            match self.used.iter().find(|(u, _)| *u == t) {
+                None => break,
+                Some((_, e)) if e["path"] == entry["path"] => return t,
+                Some(_) => t = format!("{tag}-{n}"),
+            }
         }
-        if !self.dir.as_os_str().is_empty() && !self.dir.join(format!("{name}.srs")).is_file() {
-            notes.push(format!("правило {name} пропущено: нет файла набора"));
-            return None;
+        entry["tag"] = json!(t);
+        self.used.push((t.clone(), entry));
+        t
+    }
+
+    /// The rule-set standing for one geo ref: a shipped one when there is one (nothing to
+    /// convert or read), else one converted from the geo data. None: the ref is noted missing.
+    fn want(&mut self, raw: &str) -> Option<String> {
+        if let Some(name) = shipped_set(raw, self.dir) {
+            let entry = rule_set_entry(&name, self.dir);
+            return Some(self.add(name, entry));
         }
-        if !self.used.contains(&name) {
-            self.used.push(name.clone());
+        let list = match self.geo.map(|g| g.rule_set(raw)) {
+            Some(Ok((tag, entry))) => return Some(self.add(tag, entry)),
+            Some(Err(true)) => &mut self.pending,
+            _ => &mut self.missing,
+        };
+        if !list.iter().any(|m| m == raw) {
+            list.push(raw.to_string());
         }
-        Some(name)
+        None
     }
 }
 
+fn add_to(m: &mut Map<String, Value>, key: &str, v: String) {
+    let e = m.entry(key).or_insert_with(|| json!([]));
+    e.as_array_mut().unwrap().push(json!(v));
+}
+
 /// Xray domain matchers → sing-box rule fields (added to `m`). False if nothing usable.
+/// Geo refs become rule-sets, which sing-box merges with the rule's own domains and addresses
+/// (any of them matches), so a `geoip:` ref among the domains works as one would expect.
 fn domains(list: &[String], m: &mut Map<String, Value>, sets: &mut Sets, notes: &mut Vec<String>) -> bool {
-    let add = |m: &mut Map<String, Value>, key: &str, v: String| {
-        let e = m.entry(key).or_insert_with(|| json!([]));
-        e.as_array_mut().unwrap().push(json!(v));
-    };
     let mut any = false;
     for d in list {
         let d = d.trim();
         if d.is_empty() {
             continue;
         }
-        let (kind, value) = match d.split_once(':') {
-            Some((k, v)) if ["domain", "full", "keyword", "regexp", "geosite", "ext", "dotless"].contains(&k) => (k, v),
-            _ => ("plain", d),
-        };
-        match kind {
-            "domain" => add(m, "domain_suffix", value.trim_start_matches("*.").into()),
-            "full" => add(m, "domain", value.into()),
-            "keyword" | "plain" => add(m, "domain_keyword", value.into()),
-            "regexp" => add(m, "domain_regex", value.into()),
-            "geosite" => {
-                let cat = value.split('@').next().unwrap_or(value).to_lowercase();
-                match sets.want(format!("geosite-{cat}"), notes) {
-                    Some(set) => add(m, "rule_set", set),
+        if geo::parse_ref(d).is_some() {
+            if d.eq_ignore_ascii_case("geoip:private") {
+                m.insert("ip_is_private".into(), json!(true));
+            } else {
+                match sets.want(d) {
+                    Some(set) => add_to(m, "rule_set", set),
                     None => continue,
                 }
             }
+            any = true;
+            continue;
+        }
+        let (kind, value) = match d.split_once(':') {
+            Some((k, v)) if ["domain", "full", "keyword", "regexp", "dotless"].contains(&k) => (k, v),
+            _ => ("plain", d),
+        };
+        match kind {
+            "domain" => add_to(m, "domain_suffix", value.trim_start_matches("*.").into()),
+            "full" => add_to(m, "domain", value.into()),
+            "keyword" | "plain" => add_to(m, "domain_keyword", value.into()),
+            "regexp" => add_to(m, "domain_regex", value.into()),
             _ => {
                 notes.push(format!("правило {d} пропущено"));
                 continue;
@@ -487,22 +542,18 @@ fn domains(list: &[String], m: &mut Map<String, Value>, sets: &mut Sets, notes: 
 fn ips(list: &[String], m: &mut Map<String, Value>, sets: &mut Sets, notes: &mut Vec<String>) -> bool {
     let mut any = false;
     for ip in list.iter().map(|i| i.trim()).filter(|i| !i.is_empty()) {
-        if let Some(cat) = ip.strip_prefix("geoip:") {
-            if cat.eq_ignore_ascii_case("private") {
-                m.insert("ip_is_private".into(), json!(true));
-            } else {
-                match sets.want(format!("geoip-{}", cat.to_lowercase()), notes) {
-                    Some(set) => {
-                        m.entry("rule_set").or_insert_with(|| json!([])).as_array_mut().unwrap().push(json!(set));
-                    }
-                    None => continue,
-                }
+        if ip.eq_ignore_ascii_case("geoip:private") {
+            m.insert("ip_is_private".into(), json!(true));
+        } else if geo::parse_ref(ip).is_some() {
+            match sets.want(ip) {
+                Some(set) => add_to(m, "rule_set", set),
+                None => continue,
             }
-        } else if ip.starts_with('!') || ip.contains(':') && ip.starts_with("ext") {
+        } else if ip.starts_with('!') {
             notes.push(format!("правило {ip} пропущено"));
             continue;
         } else {
-            m.entry("ip_cidr").or_insert_with(|| json!([])).as_array_mut().unwrap().push(json!(ip));
+            add_to(m, "ip_cidr", ip.into());
         }
         any = true;
     }
@@ -684,7 +735,7 @@ fn head_rules(tun: bool) -> Vec<Value> {
 }
 
 fn finish(st: &Settings, local: &Local, mut inbounds: Vec<Value>, outbounds: Vec<Value>, mut rules: Vec<Value>, final_tag: &str,
-          dns: Value, sets: Sets) -> Value {
+          dns: Value, sets: &Sets) -> Value {
     // the check's own port, straight to the server (see Local::probe_port); not when the
     // default way out is direct, where it would prove nothing
     let final_is_server = outbounds.iter().any(|o| s(&o["tag"]) == final_tag && !matches!(s(&o["type"]), "direct" | "block"));
@@ -697,7 +748,7 @@ fn finish(st: &Settings, local: &Local, mut inbounds: Vec<Value>, outbounds: Vec
         route["auto_detect_interface"] = json!(true);
     }
     if !sets.used.is_empty() {
-        route["rule_set"] = json!(sets.used.iter().map(|n| rule_set_entry(n, sets.dir)).collect::<Vec<_>>());
+        route["rule_set"] = json!(sets.used.iter().map(|(_, e)| e.clone()).collect::<Vec<_>>());
     }
     let level = match st.log_level.as_str() {
         "debug" => "debug",
@@ -748,11 +799,11 @@ fn link_rules(st: &Settings, local: &Local, proxy: &str, sets: &mut Sets, notes:
 fn from_link(ob: &Value, st: &Settings, local: &Local) -> Result<Built, String> {
     let proxy = outbound(ob, "proxy")?;
     let mut notes = vec![];
-    let mut sets = Sets { dir: local.rules_dir, used: vec![] };
+    let mut sets = Sets::new(local);
     let rules = link_rules(st, local, "proxy", &mut sets, &mut notes);
     let outbounds = vec![proxy, json!({"type": "direct", "tag": "direct"})];
-    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, "proxy", dns(&st.dns, "proxy", Some("ipv4_only")), sets);
-    Ok(Built { config, notes, members: HashMap::new() })
+    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, "proxy", dns(&st.dns, "proxy", Some("ipv4_only")), &sets);
+    Ok(Built { config, notes, members: HashMap::new(), missing: sets.missing, pending: sets.pending })
 }
 
 /// Tags that are ours in a translated provider config.
@@ -767,7 +818,7 @@ fn safe_tag(tag: &str, taken: &HashSet<String>) -> String {
 /// A provider's whole Xray config: its outbounds, balancers and routing; our local side.
 fn full(cfg: &Value, st: &Settings, local: &Local) -> Result<Built, String> {
     let mut notes = vec![];
-    let mut sets = Sets { dir: local.rules_dir, used: vec![] };
+    let mut sets = Sets::new(local);
     let obs = cfg["outbounds"].as_array().ok_or("в конфигурации нет исходящих")?;
     let mut taken: HashSet<String> = HashSet::new();
     let mut map: HashMap<String, Target> = HashMap::new();
@@ -989,8 +1040,8 @@ fn full(cfg: &Value, st: &Settings, local: &Local) -> Result<Built, String> {
         .collect();
     let dns_text = if dns_list.is_empty() { st.dns.clone() } else { dns_list.join(",") };
     let final_tag = proxy;
-    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, &final_tag, dns(&dns_text, &main_proxy, strategy), sets);
-    Ok(Built { config, notes, members: HashMap::new() })
+    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, &final_tag, dns(&dns_text, &main_proxy, strategy), &sets);
+    Ok(Built { config, notes, members: HashMap::new(), missing: sets.missing, pending: sets.pending })
 }
 
 /// The config for one server.
@@ -1039,10 +1090,10 @@ pub fn build_auto(servers: &[Server], st: &Settings, local: &Local) -> Result<Bu
         "tolerance": 50, "idle_timeout": "30m"}));
     outbounds.push(json!({"type": "direct", "tag": "direct"}));
     let mut notes = vec![];
-    let mut sets = Sets { dir: local.rules_dir, used: vec![] };
+    let mut sets = Sets::new(local);
     let rules = link_rules(st, local, AUTO_TAG, &mut sets, &mut notes);
-    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, AUTO_TAG, dns(&st.dns, AUTO_TAG, Some("ipv4_only")), sets);
-    Ok(Built { config, notes, members })
+    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, AUTO_TAG, dns(&st.dns, AUTO_TAG, Some("ipv4_only")), &sets);
+    Ok(Built { config, notes, members, missing: sets.missing, pending: sets.pending })
 }
 
 #[cfg(test)]
@@ -1051,7 +1102,7 @@ mod tests {
     use crate::model::Rule;
 
     fn local(tun: bool) -> Local<'static> {
-        Local { tun, clash_port: 9090, probe_port: 0, secret: "x", rules_dir: Path::new("") }
+        Local { tun, clash_port: 9090, probe_port: 0, secret: "x", rules_dir: Path::new(""), geo: None }
     }
 
     fn link(uri: &str) -> Server {
@@ -1066,7 +1117,7 @@ mod tests {
     fn the_check_has_its_own_port_straight_to_the_server() {
         let srv = link("vless://11111111-2222-3333-4444-555555555555@198.51.100.7:443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=www.site.com&fp=firefox&pbk=PUBKEY&sid=ab12#x");
         let st = Settings { routing: "ru".into(), bypass_domains: vec!["example.org".into()], ..Default::default() };
-        let l = Local { tun: true, clash_port: 9090, probe_port: 31999, secret: "x", rules_dir: Path::new("") };
+        let l = Local { tun: true, clash_port: 9090, probe_port: 31999, secret: "x", rules_dir: Path::new(""), geo: None };
         let c = build(&srv, &st, &l).unwrap().config;
         let probe = c["inbounds"].as_array().unwrap().iter().find(|i| i["tag"] == PROBE_TAG).unwrap();
         assert_eq!(probe["listen"], "127.0.0.1");
@@ -1169,9 +1220,45 @@ mod tests {
         let r = rules(&b.config);
         assert_eq!(r[0], json!({"action": "sniff"}));
         assert_eq!(r[1], json!({"process_name": ["Steam.exe"], "outbound": "direct"}));
-        // geosite:google is not shipped: dropped with a note, the rest stays
+        // geosite:google is not shipped and there is no geo data here: dropped, the rest stays
         assert_eq!(r[2], json!({"domain_suffix": ["example.org"], "outbound": "direct"}));
-        assert!(b.notes.iter().any(|n| n.contains("geosite-google")));
+        assert_eq!(b.missing, vec!["geosite:google"]);
+    }
+
+    #[test]
+    fn geo_refs_from_provider_and_exclusions_become_rule_sets() {
+        let (root, g) = crate::geo::tests::sample_dir("singbox");
+        let resolver = g.resolver();
+        let st = Settings { bypass_domains: vec!["geosite:ru-blocked".into(), "geoip:ru-blocked".into(), "ruleset:mine".into(), "ext:nope.dat:x".into()], ..Default::default() };
+        let provider = json!({
+            "outbounds": [{"tag": "proxy", "protocol": "vless", "settings": {"vnext": [{"address": "198.51.100.1", "port": 443, "users": [{"id": "11111111-2222-3333-4444-555555555555", "encryption": "none"}]}]}},
+                          {"tag": "direct", "protocol": "freedom"}, {"tag": "block", "protocol": "blackhole"}],
+            "routing": {"rules": [
+                {"type": "field", "domain": ["geosite:category-ru", "ext:geosite_RU.dat:ru-blocked", "geosite:bogus"], "outboundTag": "direct"},
+                {"type": "field", "domain": ["geosite:bogus", "ext:zkeen.dat:youtube"], "outboundTag": "block"},
+                {"type": "field", "ip": ["geoip:private", "ext:geoip_RU.dat:ru-blocked", "geoip:!ru"], "outboundTag": "direct"},
+                {"type": "field", "ip": ["ext-ip:bogus.dat:x"], "outboundTag": "block"}]}});
+        let srv = Server { config: Some(provider), ..Default::default() };
+        let l = Local { tun: false, clash_port: 1, probe_port: 0, secret: "s", rules_dir: Path::new(""), geo: Some(&resolver) };
+        let b = build(&srv, &st, &l).unwrap();
+        let r = rules(&b.config);
+        // the exclusions: three sets, the unknown ext: file is dropped
+        assert_eq!(r[1]["rule_set"], json!(["geosite_RU-ru-blocked", "geoip_RU-ru-blocked", "ruleset-mine"]));
+        assert_eq!(r[1]["outbound"], "direct");
+        // the provider's rules: the shipped set, a converted one; the rules with nothing left go away
+        assert!(r.iter().any(|x| x["rule_set"] == json!(["geosite-category-ru", "geosite_RU-ru-blocked"]) && x["outbound"] == "direct"));
+        assert!(r.iter().any(|x| x["ip_is_private"] == true && x["rule_set"] == json!(["geoip_RU-ru-blocked", "geoip-ru-not"])));
+        assert!(!r.iter().any(|x| x["action"] == "reject"));
+        let sets = b.config["route"]["rule_set"].as_array().unwrap();
+        let tags: Vec<&str> = sets.iter().map(|s| s["tag"].as_str().unwrap()).collect();
+        assert_eq!(tags.len(), tags.iter().collect::<HashSet<_>>().len());
+        for s in sets.iter().filter(|s| s["tag"] != "geosite-category-ru") {
+            assert!(Path::new(s["path"].as_str().unwrap()).is_file(), "{s}");
+        }
+        for m in ["ext:nope.dat:x", "geosite:bogus", "ext:zkeen.dat:youtube", "ext-ip:bogus.dat:x"] {
+            assert!(b.missing.contains(&m.to_string()), "{m} not in {:?}", b.missing);
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1198,7 +1285,7 @@ mod tests {
         st.rules.push(Rule { kind: "domain".into(), value: "example.org".into(), action: "block".into() });
         st.rules.push(Rule { kind: "ip".into(), value: "203.0.113.0/24".into(), action: "direct".into() });
         let srv = link("vless://u@1.2.3.4:443?type=tcp#a");
-        let l = Local { tun: true, clash_port: 1, probe_port: 0, secret: "s", rules_dir: &dir };
+        let l = Local { tun: true, clash_port: 1, probe_port: 0, secret: "s", rules_dir: &dir, geo: None };
         let b = build(&srv, &st, &l).unwrap();
         let r = rules(&b.config);
         assert_eq!(r[1], json!({"inbound": ["tun"], "port": [53], "action": "hijack-dns"}));
@@ -1313,13 +1400,13 @@ mod dump {
         for (name, uri) in links {
             let srv = crate::links::parse(uri).unwrap();
             for tun in [false, true] {
-                let l = Local { tun, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules };
+                let l = Local { tun, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules, geo: None };
                 let b = build(&srv, &st, &l).unwrap();
                 std::fs::write(dir.join(format!("{name}-{}.json", if tun { "tun" } else { "ports" })), b.config.to_string()).unwrap();
             }
             all.push(Server { id: name.into(), ..srv });
         }
-        let l = Local { tun: false, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules };
+        let l = Local { tun: false, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules, geo: None };
         std::fs::write(dir.join("auto-ports.json"), build_auto(&all, &st, &l).unwrap().config.to_string()).unwrap();
         let full_cfg = json!({
             "dns": {"servers": ["1.1.1.1", {"address": "8.8.8.8"}], "queryStrategy": "UseIPv4"},
@@ -1338,7 +1425,7 @@ mod dump {
                     {"type": "field", "port": "25,465-587", "outboundTag": "blocked"}]}});
         let srv = Server { config: Some(full_cfg), ..Default::default() };
         for tun in [false, true] {
-            let l = Local { tun, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules };
+            let l = Local { tun, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules, geo: None };
             std::fs::write(dir.join(format!("full-{}.json", if tun { "tun" } else { "ports" })), build(&srv, &st, &l).unwrap().config.to_string()).unwrap();
         }
     }

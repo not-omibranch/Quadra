@@ -53,8 +53,9 @@ Notes:
   If-Modified-Since; they go through the active connection when one is up and fall back to a
   direct request.
 - `geo_categories`: `query` filters tags by substring, case-insensitive; `limit` defaults to 500.
-  Sorted by tag. For a rule-set it returns one entry: `{ tag: <name without extension>, count:
-  <number of rules> }`. Tags are lower-case.
+  Sorted by tag. Tags are lower-case; `count` is the number of domains (geosite) or networks
+  (geoip) in the tag. For a rule-set it returns one entry: `{ tag: <name without extension>,
+  count: <domains and networks in it> }`. A file that is not downloaded yet is an error.
 - `geo_update` never throws for a single failed file; it sets that file's `error` and returns
   the list.
 
@@ -81,6 +82,38 @@ call `geo_list` when the screen opens and after each command.
 - `ruleset:<name>` for a rule-set file (`<name>` = file name without extension).
 
 A `geosite:` or `geoip:` tag is looked up in the default files first, then in every enabled
-file of that kind, so `geosite:ru-blocked` works once the runetfreedom set is enabled.
+file of that kind, so `geosite:ru-blocked` works once the runetfreedom set is there.
 An `ext:` ref to a known community file name that is not present yet is downloaded from its
 built-in source before connecting.
+
+## Built-in sets
+
+Ids are fixed; the list may grow. Only the two defaults are there from the start (copied from
+the files that ship with Xray). The others are downloaded when a config needs them: an `ext:`
+ref names the file or one of its aliases, or a plain `geosite:` / `geoip:` tag the files at hand
+lack is one the set is known to carry (`geosite:ru-blocked` brings `ru-geosite`). `geo_update`
+with the id downloads one at any time.
+
+| id | name (`ext:` file) | kind | source |
+|---|---|---|---|
+| `default-geosite` | `geosite.dat` | geosite | XTLS/Xray-rules-dat (what Xray ships) |
+| `default-geoip` | `geoip.dat` | geoip | XTLS/Xray-rules-dat `geoip-lite` |
+| `ru-geosite` | `geosite_RU.dat` | geosite | runetfreedom/russia-v2ray-rules-dat, about 90 MB |
+| `ru-geoip` | `geoip_RU.dat` | geoip | runetfreedom/russia-v2ray-rules-dat |
+| `roscomvpn-geosite` | `roscomvpn-geosite.dat` | geosite | hydraponique/roscomvpn-geosite |
+| `roscomvpn-geoip` | `roscomvpn-geoip.dat` | geoip | hydraponique/roscomvpn-geoip |
+| `zkeen` | `zkeen.dat` | geosite | jameszeroX/zkeen-domains |
+| `zkeenip` | `zkeenip.dat` | geoip | jameszeroX/zkeen-ip |
+| `zapret` | `zapret.dat` | detected | kutovoys/ru_gov_zapret |
+| `v2fly-geosite` | `dlc.dat` | geosite | v2fly/domain-list-community |
+| `loyalsoldier-geosite` | `geosite_loyalsoldier.dat` | geosite | Loyalsoldier/v2ray-rules-dat |
+| `loyalsoldier-geoip` | `geoip_loyalsoldier.dat` | geoip | Loyalsoldier/v2ray-rules-dat |
+
+A provider config may also carry Xray's own `"geodata": {"assets": [{"url", "file"}]}`
+section; those files become `url` entries here (source `"url"`, auto-update on).
+
+## Where things are
+
+`<app data>/geo/`: the files under their `name`, `index.json` (the list), `tags/` (tag lists
+by file hash), `rules/` (sing-box rule-sets made from `.dat` categories, by file hash and tag).
+The folder is Xray's asset folder (`XRAY_LOCATION_ASSET`) for every connection.

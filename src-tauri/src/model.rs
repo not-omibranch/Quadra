@@ -56,6 +56,8 @@ pub struct Settings {
     /// behaviour). false (the default since 0.4): connected as soon as the core runs, like
     /// other clients; the check goes on in the background and only marks the status.
     pub verify_first: bool,
+    /// Download the geo data files that have an address again once a day (geo.rs).
+    pub geo_auto_update: bool,
     pub selected: Option<String>,
     pub collapsed: Vec<String>,
 }
@@ -87,6 +89,7 @@ impl Default for Settings {
             log_level: "warning".into(),
             core: "auto".into(),
             verify_first: false,
+            geo_auto_update: true,
             selected: None,
             collapsed: vec![],
         }

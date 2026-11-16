@@ -2,7 +2,7 @@
 //! confirm the tunnel really carries traffic, watch it, stop it.
 
 use crate::model::{Home, Server, Settings, Status};
-use crate::{config, emit_status, singbox, sys, Ctx};
+use crate::{config, emit_status, geo, singbox, sys, Ctx};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
@@ -507,6 +507,30 @@ struct Plan {
     notes: Vec<String>,
     found: usize,
     asked: usize,
+    /// Geo refs that could not be resolved; the rules with them were left out.
+    missing: Vec<String>,
+    /// Geo refs whose rule-sets are still being made (sing-box); left out this time.
+    pending: Vec<String>,
+    /// Time spent on geo data (fetching what was missing, resolving, converting).
+    geo_ms: u64,
+}
+
+/// Geo data for one connection: what the refs need and is known gets fetched (for a short
+/// while; the rest goes on in the background for next time), then a snapshot of what is there.
+async fn geo_for(ctx: &Arc<Ctx>, refs: Vec<String>) -> Arc<geo::Resolver> {
+    ctx.geo.ensure(refs, None, Duration::from_secs(8)).await;
+    let g = ctx.geo.clone();
+    Arc::new(tokio::task::spawn_blocking(move || g.resolver()).await.unwrap_or_else(|_| geo::Resolver::empty()))
+}
+
+/// Geo refs in the user's own lists (exclusions and rules), which both cores carry.
+fn user_geo_refs(settings: &Settings, refs: &mut Vec<String>) {
+    for v in settings.bypass_domains.iter().chain(settings.rules.iter().map(|r| &r.value)) {
+        let v = v.trim();
+        if geo::parse_ref(v).is_some() && !refs.iter().any(|r| r == v) {
+            refs.push(v.to_string());
+        }
+    }
 }
 
 pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), String> {
@@ -590,16 +614,78 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
                 Ok(c) => c,
                 Err(e) => return fail(e).await,
             };
+            // Xray refuses to start over a single geo ref it cannot open (0.4.0: "common/geodata:
+            // illegal domain rule"). Every ref is made to point at a file that is there, or dropped.
+            ctx.geo.adopt_assets(&cfg);
+            if let Some(o) = cfg.as_object_mut() {
+                o.remove("geodata");
+            }
+            let mut refs = vec![];
+            geo::refs_in(&cfg, &mut refs);
+            let mut missing = vec![];
+            let geo_began = Instant::now();
+            if !refs.is_empty() {
+                let resolver = geo_for(&ctx, refs).await;
+                let fixed = tokio::task::spawn_blocking(move || {
+                    let mut cfg = cfg;
+                    let m = resolver.fix_xray(&mut cfg);
+                    (cfg, m)
+                }).await;
+                match fixed {
+                    Ok((c, m)) => {
+                        cfg = c;
+                        missing = m;
+                    }
+                    Err(e) => return fail(format!("не удалось подготовить геоданные: {e}")).await,
+                }
+            }
+            let geo_ms = geo_began.elapsed().as_millis() as u64;
             let (found, asked) = resolve_servers(&ctx, &mut cfg).await;
             Plan { cfg, bin: ctx.xray.join(sys::XRAY_BIN), args: vec!["run".into(), "-c".into(), cfg_arg.clone()],
-                   stats: Stats::Xray { metrics }, engine: "Xray", notes: vec![], found, asked }
+                   stats: Stats::Xray { metrics }, engine: "Xray", notes: vec![], found, asked, missing, pending: vec![], geo_ms }
         }
         None => {
             let clash = free_port().await;
             let probe_port = free_port().await;
             let secret = random_secret();
             let rules = ctx.singbox.join("rules");
-            let local = singbox::Local { tun: core_tun, clash_port: clash, probe_port, secret: &secret, rules_dir: &rules };
+            // sing-box has no geosite: the categories the config names become rule-sets, made
+            // here once (cached by file and tag) so that building the config only finds them
+            let mut refs = vec![];
+            if group.is_empty() {
+                if let Some(c) = &server.config {
+                    ctx.geo.adopt_assets(c);
+                    geo::refs_in(c, &mut refs);
+                }
+            }
+            user_geo_refs(&settings, &mut refs);
+            let geo_began = Instant::now();
+            let resolver = if refs.is_empty() {
+                None
+            } else {
+                let r = geo_for(&ctx, refs.clone()).await;
+                let (warm, dir, g) = (r.clone(), rules.clone(), ctx.geo.clone());
+                let job = tokio::task::spawn_blocking(move || {
+                    // geoip:private is a plain sing-box condition, not a set
+                    for x in refs.iter().filter(|x| singbox::shipped_set(x, &dir).is_none() && !x.eq_ignore_ascii_case("geoip:private")) {
+                        let _ = warm.singbox_set(x);
+                    }
+                    g.save(); // the categories in use, converted again after each update
+                });
+                // A huge category takes sing-box many seconds to compile (ru-blocked-all: 17 s).
+                // The connection does not wait for that: what is not ready by then is left out
+                // this time and finished in the background for the next one.
+                if tokio::time::timeout(Duration::from_secs(6), job).await.is_ok() {
+                    Some(r)
+                } else {
+                    let g = ctx.geo.clone();
+                    let fresh = tokio::task::spawn_blocking(move || g.resolver()).await.unwrap_or_else(|_| geo::Resolver::empty());
+                    fresh.convert.store(false, std::sync::atomic::Ordering::SeqCst);
+                    Some(Arc::new(fresh))
+                }
+            };
+            let geo_ms = geo_began.elapsed().as_millis() as u64;
+            let local = singbox::Local { tun: core_tun, clash_port: clash, probe_port, secret: &secret, rules_dir: &rules, geo: resolver.as_deref() };
             let (built, found, asked) = if group.is_empty() {
                 let (srv, found, asked) = pinned(&ctx, &server).await;
                 (singbox::build(&srv, &settings, &local), found, asked)
@@ -623,7 +709,8 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
             };
             Plan { cfg: built.config, bin: ctx.singbox.join(sys::SINGBOX_BIN),
                    args: vec!["run".into(), "--disable-color".into(), "-c".into(), cfg_arg.clone()],
-                   stats: Stats::SingBox { clash, secret, members: built.members }, engine: "sing-box", notes: built.notes, found, asked }
+                   stats: Stats::SingBox { clash, secret, members: built.members }, engine: "sing-box", notes: built.notes, found, asked,
+                   missing: built.missing, pending: built.pending, geo_ms }
         }
     };
     let lookup_ms = lookup.elapsed().as_millis();
@@ -637,14 +724,16 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
 
     ctx.core_ready.store(false, Ordering::SeqCst);
     let started = Instant::now();
-    let wrapper = if core_tun && !sys::is_admin() { sys::tun_wrapper(&plan.bin, &plan.args, &ctx.assets, &run_dir) } else { None };
+    // Xray reads geosite.dat, geoip.dat and every ext: file from the geo folder (geo.rs)
+    let assets = ctx.geo.dir.clone();
+    let wrapper = if core_tun && !sys::is_admin() { sys::tun_wrapper(&plan.bin, &plan.args, &assets, &run_dir) } else { None };
     let wrapped = wrapper.is_some();
     if core_tun && cfg!(unix) && !wrapped && !sys::is_admin() {
         return fail("для режима «весь трафик» нужен pkexec (пакет polkit): установи его или выбери другой режим".into()).await;
     }
     let mut cmd = wrapper.unwrap_or_else(|| {
         let mut c = tokio::process::Command::new(&plan.bin);
-        c.args(&plan.args).current_dir(&run_dir).env("XRAY_LOCATION_ASSET", &ctx.assets);
+        c.args(&plan.args).current_dir(&run_dir).env("XRAY_LOCATION_ASSET", &assets);
         if plan.engine == "Xray" {
             c.current_dir(&ctx.assets);
         }
@@ -689,6 +778,13 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         if sys::is_admin() { "администратор" } else { "обычные права" }));
     for n in &plan.notes {
         log(&app, &ctx, n.clone());
+    }
+    if !plan.missing.is_empty() {
+        log(&app, &ctx, format!("геоданные не найдены, правила с ними пропущены (ядро запущено без них): {}", plan.missing.join(", ")));
+        let _ = app.emit("geo-missing", json!({"server": what, "refs": plan.missing}));
+    }
+    if !plan.pending.is_empty() {
+        log(&app, &ctx, format!("наборы правил ещё собираются, эти правила включатся со следующего подключения: {}", plan.pending.join(", ")));
     }
     if let Some(out) = child.stdout.take() {
         let (app, ctx) = (app.clone(), ctx.clone());
@@ -791,15 +887,16 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
             }
         }
     }
-    let (found, asked) = (plan.found, plan.asked);
+    let (found, asked, geo_ms) = (plan.found, plan.asked, plan.geo_ms);
     let check_note = match ms {
         Some(ms) => format!("проверка связи {ms} мс"),
         None => "связь через сервер проверяется в фоне".into(),
     };
+    let geo_note = if geo_ms >= 5 { format!("геоданные {geo_ms} мс, ") } else { String::new() };
     log(&app, &ctx, format!(
-        "подключено за {} мс: адреса {found} из {asked} за {lookup_ms} мс, ядро {} {core_ms} мс, {check_note}",
-        began.elapsed().as_millis(), plan.engine));
-    *ctx.timing.lock().unwrap() = json!({"engine": plan.engine, "total_ms": began.elapsed().as_millis() as u64,
+        "подключено за {} мс: {geo_note}адреса {found} из {asked} за {} мс, ядро {} {core_ms} мс, {check_note}",
+        began.elapsed().as_millis(), (lookup_ms as u64).saturating_sub(geo_ms), plan.engine));
+    *ctx.timing.lock().unwrap() = json!({"engine": plan.engine, "total_ms": began.elapsed().as_millis() as u64, "geo_ms": geo_ms,
         "lookup_ms": lookup_ms as u64, "core_ms": core_ms as u64, "probe_ms": probe_ms as u64, "first_answer_ms": ms,
         "strict": strict, "pid": pid});
     set_status(&app, &ctx, |s| {

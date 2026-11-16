@@ -20,6 +20,7 @@ base64 = "0.22"
 sha2 = "0.10"
 percent-encoding = "2"
 qrcode = { version = "0.14", default-features = false }
+flate2 = "1"
 
 # TLS: the system's own on Windows and macOS; rustls on Linux and Android, so the binary does
 # not depend on whichever OpenSSL is (or is not) there.
