@@ -448,8 +448,24 @@ fn geo_list(ctx: Shared) -> Vec<Value> {
 }
 
 #[tauri::command]
-async fn geo_add_file(ctx: Shared<'_>, path: String) -> Result<Value, String> {
+async fn geo_add_file(app: AppHandle, ctx: Shared<'_>, path: String) -> Result<Value, String> {
     let g = ctx.geo.clone();
+    // Android's file dialog gives a content:// address: the system opens it, we get the bytes
+    #[cfg(target_os = "android")]
+    if path.starts_with("content://") {
+        use std::io::Read;
+        use tauri_plugin_fs::FsExt;
+        let fp: tauri_plugin_fs::FilePath = path.parse().map_err(|_| "не удалось открыть файл".to_string())?;
+        let mut opts = tauri_plugin_fs::OpenOptions::new();
+        opts.read(true);
+        let mut data = vec![];
+        app.fs().open(fp, opts).and_then(|mut f| f.read_to_end(&mut data)).map_err(|e| format!("не удалось прочитать файл: {e}"))?;
+        // ".../document/primary%3ADownload%2Fgeosite.dat" → "geosite.dat"
+        let decoded = percent_encoding::percent_decode_str(&path).decode_utf8_lossy().to_string();
+        let name = decoded.rsplit(['/', ':']).find(|s| !s.is_empty()).unwrap_or("geo.dat").to_string();
+        return tokio::task::spawn_blocking(move || g.add_bytes(&name, data)).await.map_err(|e| e.to_string())?;
+    }
+    let _ = &app;
     tokio::task::spawn_blocking(move || g.add_file(std::path::Path::new(&path))).await.map_err(|e| e.to_string())?
 }
 
@@ -772,7 +788,7 @@ pub fn run() {
         std::thread::sleep(std::time::Duration::from_millis(900));
     }
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(desktop)]
     {
         builder = builder
@@ -781,7 +797,7 @@ pub fn run() {
     }
     #[cfg(target_os = "android")]
     {
-        builder = builder.plugin(tauri_plugin_quadra_vpn::init());
+        builder = builder.plugin(tauri_plugin_quadra_vpn::init()).plugin(tauri_plugin_fs::init());
     }
     let app = builder
         .setup(move |app| {

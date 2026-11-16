@@ -485,7 +485,12 @@ impl Geo {
     pub fn add_file(&self, path: &Path) -> Result<Value, String> {
         let data = std::fs::read(path).map_err(|e| format!("не удалось прочитать файл: {e}"))?;
         let hint = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let hint = hint.strip_suffix(".gz").unwrap_or(&hint).to_string();
+        self.add_bytes(&hint, data)
+    }
+
+    /// A file's content and its name (Android hands over content, not a path).
+    pub fn add_bytes(&self, name: &str, data: Vec<u8>) -> Result<Value, String> {
+        let hint = name.strip_suffix(".gz").unwrap_or(name).to_string();
         let id = self.new_id(&hint);
         let e = self.store(None, &hint, data, |name, _| Entry {
             id: id.clone(), name: name.into(), source: "file".into(), enabled: true, ..Default::default()

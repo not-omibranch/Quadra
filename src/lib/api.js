@@ -26,3 +26,11 @@ export const isTauri = tauri;
 export const invoke = (cmd, args) => invokeImpl(cmd, args);
 export const listen = (name, fn) => listenImpl(name, fn);
 export const appWindow = windowImpl;
+
+/** One file chosen in the system's open dialog: its path, or null when the dialog was closed. */
+export async function pickFile(filters) {
+  if (!tauri) return (await import('./mock.js')).pickFile(filters);
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const path = await open({ multiple: false, directory: false, filters });
+  return typeof path === 'string' ? path : null;
+}

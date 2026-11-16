@@ -21,6 +21,8 @@ sha2 = "0.10"
 percent-encoding = "2"
 qrcode = { version = "0.14", default-features = false }
 flate2 = "1"
+# the system file dialog, for adding geo data files from disk
+tauri-plugin-dialog = "2"
 
 # TLS: the system's own on Windows and macOS; rustls on Linux and Android, so the binary does
 # not depend on whichever OpenSSL is (or is not) there.
@@ -38,6 +40,8 @@ tauri-plugin-autostart = "2"
 # connections to the core.
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-quadra-vpn = { path = "plugins/vpn" }
+# the file dialog answers with content:// addresses there, which only the system can open
+tauri-plugin-fs = "2"
 tun2proxy = { version = "0.8", default-features = false }
 
 [target.'cfg(windows)'.dependencies]

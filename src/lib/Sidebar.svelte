@@ -6,6 +6,7 @@
   import Icon from './Icon.svelte';
   import Loader from './Loader.svelte';
   import ServerList from './ServerList.svelte';
+  import GeoNotice from './GeoNotice.svelte';
 
   const phase = $derived(app.status.state);
   const shown = $derived(phase === 'off' ? target() : (serverById(app.status.server) ?? target()));
@@ -66,6 +67,8 @@
       {/if}
     </button>
   </section>
+
+  <GeoNotice />
 
   <div class="tools">
     <label class="search">

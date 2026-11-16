@@ -25,6 +25,9 @@ export const icons = {
   info: 'M3 3h10v10H3zM8 7.5V11M8 5v.4',
   power: 'M8 2.5v5M5 4.5A4.5 4.5 0 1 0 11 4.5',
   globe: 'M2.5 2.5h11v11h-11zM2.5 8h11M8 2.5v11',
+  // geo data: a category label, and fetching a file
+  tag: 'M2.5 2.5h6l5 5-6 6-5-5zM5.5 5.5h.5',
+  download: 'M8 2.5v7M4.5 6.5L8 10l3.5-3.5M3 13.5h10',
   // navigation
   servers: 'M3 3h10v4H3zM3 9h10v4H3zM5.5 5h.5M5.5 11h.5',
   routes: 'M2.5 2.5h4v4h-4zM9.5 9.5h4v4h-4zM6.5 4.5H11v5',
