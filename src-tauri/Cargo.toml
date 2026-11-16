@@ -20,6 +20,8 @@ base64 = "0.22"
 sha2 = "0.10"
 percent-encoding = "2"
 qrcode = { version = "0.14", default-features = false }
+# the system file dialog, for adding geo data files from disk
+tauri-plugin-dialog = "2"
 
 # TLS: the system's own on Windows and macOS; rustls on Linux and Android, so the binary does
 # not depend on whichever OpenSSL is (or is not) there.

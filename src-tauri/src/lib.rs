@@ -705,7 +705,7 @@ pub fn run() {
         std::thread::sleep(std::time::Duration::from_millis(900));
     }
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(desktop)]
     {
         builder = builder
