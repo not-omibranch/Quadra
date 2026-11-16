@@ -96,8 +96,8 @@ with the id downloads one at any time.
 
 | id | name (`ext:` file) | kind | source |
 |---|---|---|---|
-| `default-geosite` | `geosite.dat` | geosite | XTLS/Xray-rules-dat (what Xray ships) |
-| `default-geoip` | `geoip.dat` | geoip | XTLS/Xray-rules-dat `geoip-lite` |
+| `default-geosite` | `geosite.dat` | geosite | Loyalsoldier/v2ray-rules-dat (what the shipped Xray came with) |
+| `default-geoip` | `geoip.dat` | geoip | Loyalsoldier/v2ray-rules-dat |
 | `ru-geosite` | `geosite_RU.dat` | geosite | runetfreedom/russia-v2ray-rules-dat, about 90 MB |
 | `ru-geoip` | `geoip_RU.dat` | geoip | runetfreedom/russia-v2ray-rules-dat |
 | `roscomvpn-geosite` | `roscomvpn-geosite.dat` | geosite | hydraponique/roscomvpn-geosite |
@@ -106,8 +106,6 @@ with the id downloads one at any time.
 | `zkeenip` | `zkeenip.dat` | geoip | jameszeroX/zkeen-ip |
 | `zapret` | `zapret.dat` | detected | kutovoys/ru_gov_zapret |
 | `v2fly-geosite` | `dlc.dat` | geosite | v2fly/domain-list-community |
-| `loyalsoldier-geosite` | `geosite_loyalsoldier.dat` | geosite | Loyalsoldier/v2ray-rules-dat |
-| `loyalsoldier-geoip` | `geoip_loyalsoldier.dat` | geoip | Loyalsoldier/v2ray-rules-dat |
 
 A provider config may also carry Xray's own `"geodata": {"assets": [{"url", "file"}]}`
 section; those files become `url` entries here (source `"url"`, auto-update on).

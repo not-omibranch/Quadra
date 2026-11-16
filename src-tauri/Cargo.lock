@@ -3265,9 +3265,10 @@ checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quadra"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "libc",
  "percent-encoding",
  "qrcode",
@@ -3279,6 +3280,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-autostart",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-quadra-vpn",
  "tauri-plugin-single-instance",
  "tokio",

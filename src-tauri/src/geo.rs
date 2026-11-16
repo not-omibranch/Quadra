@@ -50,21 +50,23 @@ pub struct Builtin {
     pub shipped: bool,
 }
 
-/// Checked on 16.11.2026. The defaults come from where Xray's own release takes them
-/// (XTLS/Xray-rules-dat; its geoip.dat is geoip-lite). 3x-ui and its forks save runetfreedom's
-/// files as geosite_RU.dat / geoip_RU.dat, the names provider configs use in `ext:` refs.
+/// Checked on 16.11.2026. The defaults are Loyalsoldier's, the files the shipped Xray 26.9.30
+/// came with (GFW / GREATFIRE tags, every country in geoip). Newer Xray releases take theirs
+/// from XTLS/Xray-rules-dat, whose geoip-lite has only a few countries: updating to it would
+/// drop tags configs use. 3x-ui and its forks save runetfreedom's files as geosite_RU.dat /
+/// geoip_RU.dat, the names provider configs use in `ext:` refs.
 pub const CATALOG: &[Builtin] = &[
     Builtin {
         id: "default-geosite", name: "geosite.dat", kind: SITE, shipped: true,
-        url: "https://github.com/XTLS/Xray-rules-dat/releases/latest/download/geosite.dat.gz",
-        aliases: &[], hints: &[],
-        description: "Основной geosite (из Xray): правила geosite:<тег> читают его первым",
+        url: "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
+        aliases: &["geosite_loyalsoldier.dat", "loyalsoldier-geosite.dat"], hints: &[],
+        description: "Основной geosite (Loyalsoldier, как в Xray): правила geosite:<тег> читают его первым",
     },
     Builtin {
         id: "default-geoip", name: "geoip.dat", kind: IP, shipped: true,
-        url: "https://github.com/XTLS/Xray-rules-dat/releases/latest/download/geoip-lite.dat.gz",
-        aliases: &[], hints: &[],
-        description: "Основной geoip (из Xray): правила geoip:<тег> читают его первым",
+        url: "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+        aliases: &["geoip_loyalsoldier.dat", "loyalsoldier-geoip.dat"], hints: &[],
+        description: "Основной geoip (Loyalsoldier, как в Xray): правила geoip:<тег> читают его первым",
     },
     Builtin {
         id: "ru-geosite", name: "geosite_RU.dat", kind: SITE, shipped: false,
@@ -117,18 +119,6 @@ pub const CATALOG: &[Builtin] = &[
         url: "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
         aliases: &["geosite_v2fly.dat", "v2fly-geosite.dat"], hints: &[],
         description: "v2fly domain-list-community: исходные категории geosite",
-    },
-    Builtin {
-        id: "loyalsoldier-geosite", name: "geosite_loyalsoldier.dat", kind: SITE, shipped: false,
-        url: "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
-        aliases: &["loyalsoldier-geosite.dat"], hints: &[],
-        description: "Loyalsoldier: geosite с китайскими списками и рекламой",
-    },
-    Builtin {
-        id: "loyalsoldier-geoip", name: "geoip_loyalsoldier.dat", kind: IP, shipped: false,
-        url: "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
-        aliases: &["loyalsoldier-geoip.dat"], hints: &[],
-        description: "Loyalsoldier: geoip со странами и сетями сервисов",
     },
 ];
 
