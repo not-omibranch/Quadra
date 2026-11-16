@@ -3,6 +3,7 @@
   import { invoke } from './api.js';
   import Icon from './Icon.svelte';
   import Loader from './Loader.svelte';
+  import GeoBrowser from './GeoBrowser.svelte';
 
   // Popups grow out of the place that was clicked.
   let origin = { x: innerWidth / 2, y: innerHeight / 2 };
@@ -203,6 +204,10 @@
             <span class="grow"></span>
             <button class="btn primary" onclick={close}>Готово</button>
           </div>
+        {:else if p.kind === 'geo'}
+          <GeoBrowser mode="copy" file={p.id} onclose={close} />
+        {:else if p.kind === 'geo-pick'}
+          <GeoBrowser mode="pick" onclose={close} />
         {:else if p.kind === 'admin'}
           <h3>Нужны права администратора</h3>
           <p>Режим «Весь трафик» создаёт виртуальный сетевой адаптер и меняет маршруты системы. Windows разрешает это только программе, запущенной от имени администратора.</p>
@@ -278,6 +283,11 @@
   }
   .grow {
     flex: 1;
+  }
+  .popup.geo,
+  .popup.geo-pick {
+    width: 480px;
+    max-height: calc(100vh - var(--titlebar) - 48px);
   }
   .popup.apps {
     width: 460px;

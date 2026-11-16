@@ -1,4 +1,5 @@
-import { invoke, listen } from './api.js';
+import { invoke, listen, pickFile } from './api.js';
+import { fixable, many } from './geo.js';
 
 export const app = $state({
   ready: false,
@@ -25,6 +26,10 @@ export const app = $state({
   busy: {},
   pickHome: false,
   apps: null, // programs to choose from in the exclusions, loaded when first needed
+  geo: null, // GeoFile[] (docs/geo-api.md), loaded when a screen needs it
+  geoError: '', // why the list could not be read
+  geoMissing: null, // { server, refs, fixed }: geo refs the last connection had to drop
+  geoFocus: false, // the settings panel scrolls to its geo data section when it opens
   now: Date.now(),
   logTick: 0,
 });
@@ -43,7 +48,8 @@ export function toast(text, kind = 'info') {
   }, kind === 'error' ? 6500 : 3600);
 }
 
-const fail = (e) => toast(typeof e === 'string' ? e : (e?.message ?? 'что-то пошло не так'), 'error');
+const errText = (e) => (typeof e === 'string' ? e : (e?.message ?? 'что-то пошло не так'));
+const fail = (e) => toast(errText(e), 'error');
 
 let saveTimer;
 export function save() {
@@ -71,6 +77,7 @@ function applyData(d, first = false) {
     // a phone has one mode: the system VPN
     if (app.platform === 'android') app.settings.mode = 'tun';
     app.settings.bypass_mode ??= 'exclude';
+    app.settings.geo_auto_update ??= true;
     app.version = d.version;
     app.userAgent = d.userAgent;
   } else {
@@ -204,6 +211,145 @@ export function loadApps() {
   return appsLoading;
 }
 
+// ---- geo data (docs/geo-api.md). The files are not in the state snapshot; the list is asked
+// for when a screen needs it and replaced with what each command returns.
+
+let geoLoading = null;
+export function loadGeo() {
+  geoLoading ??= invoke('geo_list')
+    .then((list) => {
+      app.geo = list ?? [];
+      app.geoError = '';
+    })
+    .catch((e) => (app.geoError = errText(e)))
+    .finally(() => (geoLoading = null));
+  return geoLoading;
+}
+
+function putGeo(file) {
+  if (!app.geo || !file) return;
+  const i = app.geo.findIndex((f) => f.id === file.id);
+  if (i >= 0) app.geo[i] = file;
+  else app.geo.push(file);
+}
+
+const added = (f) =>
+  f.kind === 'ruleset' ? `Набор правил ${f.name} добавлен` : `Файл ${f.name} добавлен, в нём ${many(f.categories, 'категория', 'категории', 'категорий')}`;
+
+export function geoAddFile() {
+  return busy('geo:file', async () => {
+    let path;
+    try {
+      path = await pickFile([{ name: 'Гео-данные', extensions: ['dat', 'srs', 'json'] }]);
+    } catch (e) {
+      fail(e);
+      return;
+    }
+    if (!path) return;
+    try {
+      const f = await invoke('geo_add_file', { path });
+      putGeo(f);
+      toast(added(f), 'ok');
+    } catch (e) {
+      fail(e);
+    }
+  });
+}
+
+/** Resolves to '' when the file was added, or to the reason it was not. */
+export function geoAddUrl(url, autoUpdate) {
+  return busy('geo:url', async () => {
+    try {
+      const f = await invoke('geo_add_url', { url, autoUpdate });
+      putGeo(f);
+      toast(added(f), 'ok');
+      return '';
+    } catch (e) {
+      return errText(e);
+    }
+  });
+}
+
+export async function geoSetEnabled(id, enabled) {
+  const f = app.geo?.find((x) => x.id === id);
+  if (!f) return;
+  f.enabled = enabled;
+  try {
+    putGeo(await invoke('geo_set_enabled', { id, enabled }));
+  } catch (e) {
+    f.enabled = !enabled;
+    fail(e);
+  }
+}
+
+export async function geoRemove(id) {
+  try {
+    await invoke('geo_remove', { id });
+    app.geo = (app.geo ?? []).filter((f) => f.id !== id);
+  } catch (e) {
+    fail(e);
+  }
+}
+
+/** One file, or every file that has somewhere to be downloaded from when `id` is left out. */
+export function geoUpdate(id) {
+  return busy('geo:' + (id ?? 'all'), async () => {
+    try {
+      const list = await invoke('geo_update', id ? { id } : {});
+      app.geo = list;
+      if (id) {
+        const f = list.find((x) => x.id === id);
+        if (f?.error) toast(`${f.name}: ${f.error}`, 'error');
+        else if (f) toast(`${f.name} обновлён`, 'ok');
+      } else {
+        const bad = list.filter((f) => f.error && f.url);
+        if (bad.length) toast(`Не обновились: ${bad.map((f) => f.name).join(', ')}`, 'error');
+        else toast('Гео-данные обновлены', 'ok');
+      }
+    } catch (e) {
+      fail(e);
+    }
+  });
+}
+
+/** The notice about dropped refs: open the settings right at the geo data. */
+export function openGeo() {
+  app.popup = null;
+  app.panel = 'settings';
+  app.geoFocus = true;
+}
+
+/** Switches on and downloads the files the dropped refs may come from. */
+export function geoFixMissing() {
+  return busy('geo:fix', async () => {
+    const missing = app.geoMissing;
+    if (!missing) return;
+    if (!app.geo) await loadGeo();
+    const files = fixable(missing.refs, app.geo ?? []);
+    let ok = 0;
+    for (const f of files) {
+      try {
+        if (!f.enabled) putGeo(await invoke('geo_set_enabled', { id: f.id, enabled: true }));
+        if (f.url) {
+          app.geo = await invoke('geo_update', { id: f.id });
+          const now = app.geo.find((x) => x.id === f.id);
+          if (now?.error) {
+            toast(`${f.name}: ${now.error}`, 'error');
+            continue;
+          }
+        }
+        ok += 1;
+      } catch (e) {
+        fail(e);
+      }
+    }
+    if (ok && app.geoMissing === missing) {
+      missing.fixed = true;
+      toast('Файлы скачаны. Правила заработают после переподключения', 'ok');
+    }
+  });
+}
+
 export async function copy(text, done = 'Скопировано') {
   try {
     await navigator.clipboard.writeText(text);
@@ -224,6 +370,13 @@ export async function init() {
       app.history = [];
     }
     if (s.error && before !== 'off') toast(s.error, 'error');
+    // a new connection reports its own dropped geo refs, if any
+    if (s.state === 'connecting' && before !== 'connecting') app.geoMissing = null;
+  });
+  await listen('geo-missing', (m) => {
+    const refs = [...new Set(m?.refs ?? [])];
+    app.geoMissing = refs.length ? { server: m.server ?? '', refs, fixed: false } : null;
+    if (refs.length && app.geo) loadGeo();
   });
   await listen('data', (d) => {
     applyData(d);

@@ -3,6 +3,7 @@
   import Panel from './Panel.svelte';
   import Segmented from './Segmented.svelte';
   import Icon from './Icon.svelte';
+  import { isRef } from './geo.js';
 
   const presets = [
     { value: 'all', title: 'Всё через сервер', text: 'Весь интернет-трафик уходит в туннель. Домашняя сеть остаётся доступной напрямую.' },
@@ -118,19 +119,29 @@
   <div class="pick">
     <div class="pick-head">
       <b>Сайты</b>
+      <button class="btn" onclick={() => (app.popup = { kind: 'geo-pick' })}><Icon name="tag" />Добавить категорию</button>
     </div>
     <form class="enter" onsubmit={(e) => { e.preventDefault(); addDomains(); }}>
       <input class="input" bind:value={domain} spellcheck="false" autocapitalize="off" autocomplete="off" inputmode="url"
-             placeholder="example.com" onpaste={() => setTimeout(() => /[\s,;]/.test(domain.trim()) && addDomains())} />
+             placeholder="example.com или geosite:youtube" onpaste={() => setTimeout(() => /[\s,;]/.test(domain.trim()) && addDomains())} />
       <button class="btn" disabled={!domain.trim()}><Icon name="plus" />Добавить</button>
     </form>
     {#if app.settings.bypass_domains.length}
       <div class="chips">
         {#each app.settings.bypass_domains as d (d)}
-          <span class="chip">
-            <span>{d}</span>
-            <button title="Убрать" onclick={() => drop('bypass_domains', d)}><Icon name="close" size={11} /></button>
-          </span>
+          {#if isRef(d)}
+            {@const cut = d.lastIndexOf(':') + 1}
+            <span class="chip ref" title="Категория из гео-данных">
+              <Icon name="tag" size={12} />
+              <span class="code"><em>{d.slice(0, cut)}</em>{d.slice(cut)}</span>
+              <button title="Убрать" aria-label="Убрать {d}" onclick={() => drop('bypass_domains', d)}><Icon name="close" size={11} /></button>
+            </span>
+          {:else}
+            <span class="chip">
+              <span>{d}</span>
+              <button title="Убрать" aria-label="Убрать {d}" onclick={() => drop('bypass_domains', d)}><Icon name="close" size={11} /></button>
+            </span>
+          {/if}
         {/each}
       </div>
     {/if}
@@ -274,6 +285,19 @@
     width: 16px;
     height: 16px;
     flex: none;
+  }
+  /* a whole category from the geo data: its ref, with the file part dimmed */
+  .chip.ref {
+    padding-left: 8px;
+    color: var(--text-3);
+  }
+  .chip.ref .code {
+    font-size: 11.5px;
+    color: var(--text);
+  }
+  .chip.ref em {
+    font-style: normal;
+    color: var(--text-3);
   }
   .chip button {
     width: 22px;

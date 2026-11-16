@@ -46,6 +46,13 @@ additions to the address:
 | `?boot=3000` | the app takes that long to start |
 | `?platform=macos`, `?platform=linux&tiling` | how the window looks elsewhere |
 | `?mock` | inside the real app: use the stand-in backend (how the README pictures are made) |
+| `?geo=own-empty`, `none`, `slow`, `error` | the geo data list with no files of your own, with no files at all, loading forever, failing |
+| `?geo=tags-slow`, `tags-error` | the category browser loading forever or failing |
+| `?geomissing`, `?geomissing=all` | the connection reports geo refs it had to drop (one of them has no file, or all can be fetched) |
+| `?pick=cancel` | the file dialog closes without a choice |
+
+`node tools/capture-geo.mjs` photographs every state of the geo data screens into `docs/img/geo/`.
+The contract with the backend for them is `docs/geo-api.md`.
 
 ## Checking the real thing
 

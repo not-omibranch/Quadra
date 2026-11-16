@@ -19,7 +19,7 @@ export function duration(seconds) {
   return h ? `${h}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}` : `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
 }
 
-function plural(n, one, few, many) {
+export function plural(n, one, few, many) {
   const a = Math.abs(n) % 100;
   const b = a % 10;
   if (a > 10 && a < 20) return many;

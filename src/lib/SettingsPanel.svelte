@@ -8,6 +8,7 @@
   import Icon from './Icon.svelte';
   import Flag from './Flag.svelte';
   import Loader from './Loader.svelte';
+  import GeoSection from './GeoSection.svelte';
 
   const accents = ['#3ddc84', '#2fe0c5', '#b6e23c', '#4da3ff', '#a78bfa', '#ff6fae', '#ff9a3c', '#f2d24b'];
   const s = $derived(app.settings);
@@ -110,6 +111,8 @@
   <Field title="User-Agent" hint="Некоторые провайдеры пускают только знакомые клиенты. Пусто — стандартный">
     <input class="input mono wide" value={s.user_agent} placeholder={app.userAgent} spellcheck="false" onchange={(e) => set('user_agent', e.currentTarget.value.trim())} />
   </Field>
+
+  <GeoSection />
 
   <h3 class="label">Местоположение на карте</h3>
   <Field title="Определять по IP" hint="Один запрос к ipwho.is при запуске и один после подключения. Выключи, если не хочешь лишних запросов, и поставь точку вручную.">

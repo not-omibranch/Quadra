@@ -1,8 +1,8 @@
 <script>
-  let { checked = false, onchange, disabled = false } = $props();
+  let { checked = false, onchange, disabled = false, label = 'переключатель' } = $props();
 </script>
 
-<button class="toggle" class:on={checked} role="switch" aria-checked={checked} aria-label="переключатель" {disabled} onclick={() => onchange?.(!checked)}>
+<button class="toggle" class:on={checked} role="switch" aria-checked={checked} aria-label={label} {disabled} onclick={() => onchange?.(!checked)}>
   <i></i>
 </button>
 
