@@ -10,9 +10,9 @@ pub const PLATFORM: &str = if cfg!(target_os = "macos") {
 } else {
     "linux"
 };
-/// On Android the core is packaged as a native library, the only place a program may be run from.
+/// On Android the cores are packaged as native libraries, the only place a program may be run from.
 pub const XRAY_BIN: &str = if cfg!(target_os = "android") { "libxray.so" } else { "xray" };
-pub const SINGBOX_BIN: &str = "sing-box";
+pub const SINGBOX_BIN: &str = if cfg!(target_os = "android") { "libsingbox.so" } else { "sing-box" };
 
 /// Model and system version, told to us by the Android side at startup.
 static DEVICE: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();

@@ -83,18 +83,31 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** The core's data files (geoip.dat, geosite.dat) ship as assets; the core needs them as files. */
+    /**
+     * The cores' data files ship as assets (Xray's geoip.dat and geosite.dat under "xray",
+     * sing-box's rule-sets under "sing-box/rules"); the cores need them as files.
+     */
     private fun unpackData() {
-        val target = File(activity.filesDir, "xray")
-        target.mkdirs()
         // unpacked once per installed build: the stamp is the time the package was last updated
         val installed = activity.packageManager.getPackageInfo(activity.packageName, 0).lastUpdateTime.toString()
-        val stamp = File(target, ".stamp")
+        val stamp = File(activity.filesDir, ".assets-stamp")
         if (stamp.exists() && stamp.readText() == installed) return
-        for (name in activity.assets.list("xray") ?: emptyArray()) {
-            activity.assets.open("xray/$name").use { input -> File(target, name).outputStream().use { input.copyTo(it) } }
+        val shipped = activity.assets.list("") ?: emptyArray()
+        for (dir in listOf("xray", "sing-box")) {
+            if (dir in shipped) copyAssets(dir, File(activity.filesDir, dir))
         }
         stamp.writeText(installed)
+    }
+
+    private fun copyAssets(path: String, target: File) {
+        val children = activity.assets.list(path) ?: emptyArray()
+        if (children.isEmpty()) {
+            target.parentFile?.mkdirs()
+            activity.assets.open(path).use { input -> target.outputStream().use { input.copyTo(it) } }
+            return
+        }
+        target.mkdirs()
+        for (name in children) copyAssets("$path/$name", File(target, name))
     }
 
     /** Brings the VPN up; the first time the system asks the user to allow it. */

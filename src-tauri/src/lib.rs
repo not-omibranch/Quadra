@@ -3,6 +3,8 @@
 
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(any(target_os = "android", test))]
+mod sysdns;
 mod config;
 mod core;
 mod geoip;
@@ -32,8 +34,10 @@ pub struct Ctx {
     pub dir: PathBuf,
     /// Where the Xray binary is.
     pub xray: PathBuf,
-    /// Where the sing-box binary and its rule-sets are.
+    /// Where sing-box's rule-sets are (`rules/`); on a desktop the binary is there too.
     pub singbox: PathBuf,
+    /// The sing-box binary itself (on Android it is a native library of the package).
+    pub singbox_bin: PathBuf,
     /// Where geoip.dat and geosite.dat are (next to the binary, except on Android).
     pub assets: PathBuf,
     pub data: Mutex<Data>,
@@ -721,19 +725,21 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             #[cfg(not(target_os = "android"))]
-            let (xray, assets, singbox) = {
+            let (xray, assets, singbox, singbox_bin) = {
                 let res = app.path().resource_dir()?.join("resources");
                 let d = res.join("xray");
-                (d.clone(), d, res.join("sing-box"))
+                (d.clone(), d, res.join("sing-box"), res.join("sing-box").join(sys::SINGBOX_BIN))
             };
-            // On Android the core ships as a native library of the package, and its data files
-            // are unpacked into the app's own folder by the plugin.
+            // On Android both cores ship as native libraries of the package, and their data files
+            // (Xray's .dat files, sing-box's rule-sets) are unpacked into the app's own folder by
+            // the plugin.
             #[cfg(target_os = "android")]
-            let (xray, assets, singbox) = {
+            let (xray, assets, singbox, singbox_bin) = {
                 let info = android::info(app.handle()).map_err(std::io::Error::other)?;
                 sys::set_device(&info.model, &info.release);
-                // sing-box is not shipped for Android yet: connections there stay on Xray
-                (PathBuf::from(&info.native_dir), PathBuf::from(&info.files_dir).join("xray"), PathBuf::new())
+                let native = PathBuf::from(&info.native_dir);
+                let files = PathBuf::from(&info.files_dir);
+                (native.clone(), files.join("xray"), files.join("sing-box"), native.join(sys::SINGBOX_BIN))
             };
             let tiling = sys::tiling_wm();
             let saved: Option<Data> = std::fs::read(dir.join("state.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
@@ -749,11 +755,11 @@ pub fn run() {
             {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(xray.join(sys::XRAY_BIN), std::fs::Permissions::from_mode(0o755));
-                let _ = std::fs::set_permissions(singbox.join(sys::SINGBOX_BIN), std::fs::Permissions::from_mode(0o755));
+                let _ = std::fs::set_permissions(&singbox_bin, std::fs::Permissions::from_mode(0o755));
             }
             let with_splash = cfg!(desktop) && !hidden && !tiling;
             let ctx = Arc::new(Ctx {
-                dir, xray, assets, singbox,
+                dir, xray, assets, singbox, singbox_bin,
                 data: Mutex::new(data),
                 pings: Mutex::new(HashMap::new()),
                 status: Mutex::new(Status { state: "off".into(), ..Default::default() }),

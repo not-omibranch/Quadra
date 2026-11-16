@@ -8,7 +8,8 @@ src-tauri/resources/xray/
 # sing-box (our fork) and its rule-sets: built by tools/fetch-singbox.mjs
 src-tauri/resources/sing-box/
 .singbox-src/
-# Android: the generated Gradle project, and the core fetched into the plugin by tools/fetch-xray.mjs
+# Android: the generated Gradle project, and the cores put into the plugin by tools/fetch-xray.mjs
+# and tools/fetch-singbox.mjs --android
 src-tauri/plugins/vpn/android/src/main/jniLibs/
 src-tauri/plugins/vpn/android/src/main/assets/
 src-tauri/plugins/vpn/android/.tauri/

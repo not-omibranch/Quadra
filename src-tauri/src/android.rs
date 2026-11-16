@@ -3,6 +3,14 @@
 //! descriptor, and tun2proxy turns the packets read from it into SOCKS connections to the
 //! core's local port. The app itself is excluded from the VPN, so the core's own connections
 //! to the server go out directly.
+//!
+//! The core is chosen as on a desktop (core.rs): sing-box (`libsingbox.so`), or Xray
+//! (`libxray.so`) when the settings ask for it or the server needs what only Xray has. Both
+//! are plain programs started from the package's native library folder, and both are fed by
+//! the same tun2proxy through their SOCKS port. sing-box's own TUN inbound is not used here:
+//! as a plain program it cannot take a descriptor from the system VPN (only the official
+//! app's Go library can), and opening /dev/tun itself needs root. With tun2proxy in front,
+//! switching the core changes nothing else on the phone.
 
 use crate::{core, Ctx};
 use serde::Deserialize;
