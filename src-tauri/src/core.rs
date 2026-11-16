@@ -371,6 +371,53 @@ async fn watch(app: AppHandle, ctx: Arc<Ctx>, gen: u64) {
     }
 }
 
+/// How often the background check runs while the server does not answer, and while it does.
+const RECHECK_FAILING: Duration = Duration::from_secs(12);
+const RECHECK_FINE: Duration = Duration::from_secs(60);
+
+/// The background check of a connection made without waiting for the server (the default):
+/// asks through the tunnel, marks the status "ok" or "fail", logs every change, and never
+/// tears the connection down. A server that does not answer is the server's problem; the
+/// tunnel and the system proxy stay as they are.
+async fn keep_checking(app: AppHandle, ctx: Arc<Ctx>, gen: u64, socks: u16) {
+    let mut last: Option<bool> = None;
+    loop {
+        if ctx.gen.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        let asked = Instant::now();
+        let ms = probe(socks).await;
+        if ctx.gen.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        let good = ms.is_some();
+        match (last, ms) {
+            (Some(true), Some(_)) => {}
+            (Some(false), None) => {}
+            (None, Some(ms)) => log(&app, &ctx, format!("проверка связи: сервер ответил за {ms} мс")),
+            (Some(false), Some(ms)) => log(&app, &ctx, format!("проверка связи: сервер снова отвечает, {ms} мс")),
+            (_, None) => log(&app, &ctx, format!(
+                "проверка связи: за {} мс через сервер не прошёл ни один запрос; соединение оставлено, повтор через {} с",
+                asked.elapsed().as_millis(), RECHECK_FAILING.as_secs())),
+        }
+        last = Some(good);
+        set_status(&app, &ctx, |s| {
+            if s.state == "on" && ctx.gen.load(Ordering::SeqCst) == gen {
+                s.check = if good { "ok" } else { "fail" }.into();
+                s.ms = ms;
+            }
+        });
+        let pause = if good { RECHECK_FINE } else { RECHECK_FAILING };
+        let until = Instant::now() + pause;
+        while Instant::now() < until {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            if ctx.gen.load(Ordering::SeqCst) != gen {
+                return;
+            }
+        }
+    }
+}
+
 fn server_name(ctx: &Ctx, id: &str) -> String {
     ctx.data.lock().unwrap().servers.iter().find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_else(|| id.to_string())
 }
@@ -549,9 +596,10 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         }
         None => {
             let clash = free_port().await;
+            let probe_port = free_port().await;
             let secret = random_secret();
             let rules = ctx.singbox.join("rules");
-            let local = singbox::Local { tun: core_tun, clash_port: clash, secret: &secret, rules_dir: &rules };
+            let local = singbox::Local { tun: core_tun, clash_port: clash, probe_port, secret: &secret, rules_dir: &rules };
             let (built, found, asked) = if group.is_empty() {
                 let (srv, found, asked) = pinned(&ctx, &server).await;
                 (singbox::build(&srv, &settings, &local), found, asked)
@@ -579,6 +627,10 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         }
     };
     let lookup_ms = lookup.elapsed().as_millis();
+    // the check asks through its own port when the core has one (sing-box), else the user's SOCKS port
+    let check_port = plan.cfg["inbounds"].as_array().into_iter().flatten()
+        .find(|i| i["tag"] == singbox::PROBE_TAG).and_then(|i| i["listen_port"].as_u64()).map(|p| p as u16)
+        .unwrap_or(settings.socks_port);
     if let Err(e) = std::fs::write(&cfg_path, serde_json::to_vec(&plan.cfg).unwrap_or_default()) {
         return fail(format!("не удалось записать конфигурацию: {e}")).await;
     }
@@ -695,14 +747,23 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
 
     let core_ms = started.elapsed().as_millis();
     let probe_began = Instant::now();
-    let ms = probe(settings.socks_port).await;
-    let probe_ms = probe_began.elapsed().as_millis();
-    if ctx.gen.load(Ordering::SeqCst) != gen {
-        return Ok(());
-    }
-    let Some(ms) = ms else {
-        return fail("сервер не отвечает: соединение установить не удалось".into()).await;
+    // Strict (settings.verify_first): the connection counts only after a request through the
+    // server has come back. Otherwise it is up as soon as the core runs, the way other clients
+    // behave; whether the server answers is checked in the background and shown as a mark.
+    let strict = settings.verify_first;
+    let ms = if strict {
+        let ms = probe(check_port).await;
+        if ctx.gen.load(Ordering::SeqCst) != gen {
+            return Ok(());
+        }
+        let Some(ms) = ms else {
+            return fail(format!("сервер не отвечает: за {} мс через него не прошёл ни один запрос", probe_began.elapsed().as_millis())).await;
+        };
+        Some(ms)
+    } else {
+        None
     };
+    let probe_ms = probe_began.elapsed().as_millis();
 
     #[cfg(target_os = "android")]
     {
@@ -731,18 +792,27 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
         }
     }
     let (found, asked) = (plan.found, plan.asked);
+    let check_note = match ms {
+        Some(ms) => format!("проверка связи {ms} мс"),
+        None => "связь через сервер проверяется в фоне".into(),
+    };
     log(&app, &ctx, format!(
-        "подключено за {} мс: адреса {found} из {asked} за {lookup_ms} мс, ядро {} {core_ms} мс, проверка связи {ms} мс",
+        "подключено за {} мс: адреса {found} из {asked} за {lookup_ms} мс, ядро {} {core_ms} мс, {check_note}",
         began.elapsed().as_millis(), plan.engine));
     *ctx.timing.lock().unwrap() = json!({"engine": plan.engine, "total_ms": began.elapsed().as_millis() as u64,
-        "lookup_ms": lookup_ms as u64, "core_ms": core_ms as u64, "probe_ms": probe_ms as u64, "first_answer_ms": ms, "pid": pid});
+        "lookup_ms": lookup_ms as u64, "core_ms": core_ms as u64, "probe_ms": probe_ms as u64, "first_answer_ms": ms,
+        "strict": strict, "pid": pid});
     set_status(&app, &ctx, |s| {
         s.state = "on".into();
         s.since = crate::now();
-        s.ms = Some(ms);
+        s.ms = ms;
+        s.check = if strict { "ok" } else { "checking" }.into();
     });
 
     tokio::spawn(watch(app.clone(), ctx.clone(), gen));
+    if !strict {
+        tokio::spawn(keep_checking(app.clone(), ctx.clone(), gen, check_port));
+    }
     if settings.geo_lookup {
         let socks = settings.socks_port;
         tokio::spawn(async move {

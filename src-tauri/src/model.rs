@@ -52,6 +52,10 @@ pub struct Settings {
     pub log_level: String,
     /// "auto": sing-box, Xray only for what sing-box cannot do. "xray": always Xray.
     pub core: String,
+    /// true: "connected" only after a request through the server has come back (the 0.3
+    /// behaviour). false (the default since 0.4): connected as soon as the core runs, like
+    /// other clients; the check goes on in the background and only marks the status.
+    pub verify_first: bool,
     pub selected: Option<String>,
     pub collapsed: Vec<String>,
 }
@@ -82,6 +86,7 @@ impl Default for Settings {
             sub_update_hours: 12,
             log_level: "warning".into(),
             core: "auto".into(),
+            verify_first: false,
             selected: None,
             collapsed: vec![],
         }
@@ -152,7 +157,10 @@ pub struct Status {
     pub state: String, // "off" | "connecting" | "on"
     pub server: Option<String>,
     pub since: u64,
+    /// Time of the last answer through the server.
     pub ms: Option<u32>,
+    /// While connected: "checking" | "ok" | "fail", the last check through the server.
+    pub check: String,
     pub error: Option<String>,
     pub exit: Option<Value>,
     pub tun: bool,

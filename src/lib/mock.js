@@ -14,7 +14,7 @@ const state = {
     bypass_mode: 'exclude', bypass_apps: ['Steam.exe'], bypass_domains: ['example.org', 'bank.example'],
     dns: '1.1.1.1, 8.8.8.8', close_to_tray: true, autostart: false, autoconnect: false, send_hwid: true,
     user_agent: '', geo_lookup: true, home: { lat: 55.75, lon: 37.62, cc: 'RU', ip: '203.0.113.7', manual: false },
-    sub_update_hours: 12, log_level: 'warning', core: 'auto', selected: 'a2', collapsed: [],
+    sub_update_hours: 12, log_level: 'warning', core: 'auto', verify_first: false, selected: 'a2', collapsed: [],
   },
   subs: [
     { id: 's1', url: 'https://sub.example/one', title: 'ArrowVPN', upload: 0, download: 6.4e9, total: 21474836480,
@@ -42,15 +42,15 @@ const state = {
     srv('b6', 's2', 'Бразилия', 'BR', 'trojan', 'tcp', 'tls', 240),
     srv('m1', null, 'Свой сервер', 'TR', 'vless', 'tcp', 'reality', null),
   ],
-  status: { state: 'off', server: null, since: 0, ms: null, error: null, exit: null, tun: false },
+  status: { state: 'off', server: null, since: 0, ms: null, check: '', error: null, exit: null, tun: false },
   hwid: '6F3A1C22-9B4E-47D0-A1F8-5C2E7D903B16',
   admin: false,
   elevated: false,
   platform: new URLSearchParams(location.search).get('platform') ?? 'windows',
   tiling: new URLSearchParams(location.search).has('tiling'),
   relaunchForTun: (new URLSearchParams(location.search).get('platform') ?? 'windows') === 'windows',
-  version: '0.3.2',
-  userAgent: 'Quadra/0.3.2',
+  version: '0.4.0',
+  userAgent: 'Quadra/0.4.0',
 };
 
 const snapshot = () => JSON.parse(JSON.stringify(state));
@@ -87,11 +87,15 @@ const commands = {
     await wait(Number(params.get('delay') ?? 1500));
     if (pending !== token) return;
     const server = state.servers.find((s) => s.id === id);
-    if (!server || server.ping === -1 || params.has('fail')) {
-      setStatus({ state: 'off', error: 'сервер не отвечает: соединение установить не удалось' });
-      throw 'сервер не отвечает: соединение установить не удалось';
+    const dead = !server || server.ping === -1 || params.has('fail');
+    const strict = state.settings.verify_first;
+    if (!server || (dead && strict)) {
+      setStatus({ state: 'off', error: 'сервер не отвечает: за 7600 мс через него не прошёл ни один запрос' });
+      throw 'сервер не отвечает: за 7600 мс через него не прошёл ни один запрос';
     }
-    setStatus({ state: 'on', since: Math.floor(Date.now() / 1000), ms: server.ping ?? 60 });
+    // without verify_first the stand-in connects at once and reports the check a moment later
+    setStatus({ state: 'on', since: Math.floor(Date.now() / 1000), ms: strict ? server.ping ?? 60 : null, check: strict ? 'ok' : 'checking' });
+    if (!strict) setTimeout(() => pending === token && setStatus(dead ? { check: 'fail', ms: null } : { check: 'ok', ms: server.ping ?? 60 }), 1200);
     let tup = 0, tdown = 0, t = 0;
     traffic = setInterval(() => {
       t += 1;
@@ -105,7 +109,7 @@ const commands = {
   async disconnect() {
     pending = null;
     stopTraffic();
-    setStatus({ state: 'off', since: 0, ms: null, error: null, exit: null });
+    setStatus({ state: 'off', since: 0, ms: null, check: '', error: null, exit: null });
   },
   async ping({ ids }) {
     for (const s of state.servers) {

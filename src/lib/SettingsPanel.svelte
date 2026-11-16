@@ -67,6 +67,9 @@
                options={[{ value: 'proxy', label: 'Прокси' }, { value: 'tun', label: 'Весь трафик' }, { value: 'ports', label: 'Порты' }]} />
   </Field>
   {/if}
+  <Field title="Проверять сервер перед подключением" hint="Когда выключено, Quadra подключается сразу и проверяет связь через сервер в фоне, не разрывая соединение">
+    <Toggle checked={s.verify_first} onchange={(v) => setLink('verify_first', v)} />
+  </Field>
   <Field title="Локальные порты" hint="SOCKS5 и HTTP на 127.0.0.1">
     <label class="port"><span class="mono">SOCKS</span><input class="input mono" type="number" value={s.socks_port} onchange={(e) => port('socks_port', e)} /></label>
     <label class="port"><span class="mono">HTTP</span><input class="input mono" type="number" value={s.http_port} onchange={(e) => port('http_port', e)} /></label>

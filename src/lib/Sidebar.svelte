@@ -11,6 +11,8 @@
   const shown = $derived(phase === 'off' ? target() : (serverById(app.status.server) ?? target()));
   const label = $derived({ off: 'Не подключено', connecting: 'Подключаюсь…', on: 'Подключено' }[phase]);
   const elapsed = $derived(phase === 'on' ? duration((app.now - app.status.since * 1000) / 1000) : '');
+  // the background check through the server: "checking" | "ok" | "fail" (never disconnects)
+  const check = $derived(app.status.check ?? '');
   const phone = $derived(app.platform === 'android');
   const refreshing = $derived(app.subs.some((s) => app.busy['sub:' + s.id]));
 
@@ -38,7 +40,7 @@
         <Flag cc={shown.cc} cell={4} />
         <div class="names">
           <b>{shown.name}</b>
-          <span class="state">{label}{#if phase === 'on'}<em class="mono">{elapsed}</em>{/if}</span>
+          <span class="state">{label}{#if phase === 'on'}<em class="mono">{elapsed}</em>{/if}{#if phase === 'on' && check === 'fail'}<i class="check bad" title="Туннель включён, но запросы через сервер не проходят. Quadra проверяет снова каждые 12 секунд и не отключается">сервер не отвечает</i>{:else if phase === 'on' && check === 'checking'}<i class="check">проверяю связь</i>{/if}</span>
           <span class="detail">
             {#if elsewhere}
               {[`выход: ${elsewhere}`, app.status.exit.ip].filter(Boolean).join(' · ')}
@@ -145,6 +147,16 @@
     font-style: normal;
     margin-left: 8px;
     color: var(--text-2);
+  }
+  .check {
+    font-style: normal;
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 1px solid var(--line);
+    color: var(--text-3);
+  }
+  .check.bad {
+    color: var(--warn);
   }
   [data-state='connecting'] .state {
     color: var(--warn);

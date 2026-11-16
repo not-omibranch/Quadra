@@ -588,6 +588,15 @@ async fn bench(app: AppHandle, ctx: Arc<Ctx>) {
             let pid = row["pid"].as_u64();
             row["rss_kb"] = json!(rss_kb(pid));
             row["server"] = json!(ctx.status.lock().unwrap().server.clone());
+            row["state"] = json!(ctx.status.lock().unwrap().state.clone());
+            // without verify_first the check runs in the background: give it time, then record it
+            if let Some(wait) = job["check_wait_ms"].as_u64() {
+                tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+                let s = ctx.status.lock().unwrap().clone();
+                row["state_after_check"] = json!(s.state);
+                row["check"] = json!(s.check);
+                row["check_ms"] = json!(s.ms);
+            }
             if let Some(url) = job["download_url"].as_str() {
                 match fetch_through(socks, url, 60).await {
                     Ok((n, ms)) => {

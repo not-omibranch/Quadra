@@ -14,6 +14,8 @@ use std::path::Path;
 pub const TUN_TAG: &str = "tun";
 /// Tag of the urltest group behind "Авто, самый быстрый".
 pub const AUTO_TAG: &str = "auto";
+/// Tag of the inbound the connection check uses.
+pub const PROBE_TAG: &str = "probe";
 const PROBE_URL: &str = "https://www.gstatic.com/generate_204";
 
 /// Rule-sets that ship with the app (resources/sing-box/rules/<name>.srs).
@@ -28,6 +30,12 @@ const PRIVATE_NETWORKS: &[&str] = &[
 pub struct Local<'a> {
     pub tun: bool,
     pub clash_port: u16,
+    /// A SOCKS port only for the connection check (0: none). Its traffic goes straight to the
+    /// server, past DNS, routing presets and exclusions, so the check asks "does the server
+    /// carry traffic" and nothing else. Before 0.4 the check went through the user's port and,
+    /// with the Russia preset, first resolved its name with UDP DNS through the server: on a
+    /// lossy path that alone stalled it for seconds and failed servers that worked.
+    pub probe_port: u16,
     pub secret: &'a str,
     /// Folder with the shipped `.srs` rule-sets.
     pub rules_dir: &'a Path,
@@ -393,7 +401,7 @@ fn is_proxy(ob: &Value) -> bool {
 /// What sing-box with our fork cannot do for this server; such servers are run by Xray.
 pub fn needs_xray(server: &Server) -> Option<String> {
     match (&server.config, &server.outbound) {
-        (Some(c), _) => full(c, &Settings::default(), &Local { tun: false, clash_port: 0, secret: "", rules_dir: Path::new("") }).err(),
+        (Some(c), _) => full(c, &Settings::default(), &Local { tun: false, clash_port: 0, probe_port: 0, secret: "", rules_dir: Path::new("") }).err(),
         (None, Some(o)) => outbound(o, "proxy").err(),
         _ => Some("у сервера нет конфигурации".into()),
     }
@@ -675,8 +683,15 @@ fn head_rules(tun: bool) -> Vec<Value> {
     r
 }
 
-fn finish(st: &Settings, local: &Local, inbounds: Vec<Value>, outbounds: Vec<Value>, rules: Vec<Value>, final_tag: &str,
+fn finish(st: &Settings, local: &Local, mut inbounds: Vec<Value>, outbounds: Vec<Value>, mut rules: Vec<Value>, final_tag: &str,
           dns: Value, sets: Sets) -> Value {
+    // the check's own port, straight to the server (see Local::probe_port); not when the
+    // default way out is direct, where it would prove nothing
+    let final_is_server = outbounds.iter().any(|o| s(&o["tag"]) == final_tag && !matches!(s(&o["type"]), "direct" | "block"));
+    if local.probe_port != 0 && final_is_server {
+        inbounds.push(json!({"type": "socks", "tag": PROBE_TAG, "listen": "127.0.0.1", "listen_port": local.probe_port}));
+        rules.insert(0, json!({"inbound": [PROBE_TAG], "outbound": final_tag}));
+    }
     let mut route = json!({"rules": rules, "final": final_tag, "default_domain_resolver": "dns-local"});
     if local.tun {
         route["auto_detect_interface"] = json!(true);
@@ -715,7 +730,14 @@ fn link_rules(st: &Settings, local: &Local, proxy: &str, sets: &mut Sets, notes:
         rules.push(route_to(m, &Target::Out("direct".into())));
         let mut m = Map::new();
         if ips(&["geoip:ru".into()], &mut m, sets, notes) {
-            rules.push(json!({"action": "resolve"}));
+            // Through the ports and the system proxy names arrive as names, and matching them
+            // against geoip meant a DNS lookup through the server before every new site: UDP
+            // over a fresh connection, seconds on a lossy path, and a failed request when it
+            // got lost (0.3.2). There the names now go to the server as they are, and only
+            // addresses are matched by country. The all-traffic mode sees addresses anyway.
+            if local.tun {
+                rules.push(json!({"action": "resolve", "strategy": "ipv4_only"}));
+            }
             rules.push(route_to(m, &Target::Out("direct".into())));
         }
     }
@@ -729,7 +751,7 @@ fn from_link(ob: &Value, st: &Settings, local: &Local) -> Result<Built, String> 
     let mut sets = Sets { dir: local.rules_dir, used: vec![] };
     let rules = link_rules(st, local, "proxy", &mut sets, &mut notes);
     let outbounds = vec![proxy, json!({"type": "direct", "tag": "direct"})];
-    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, "proxy", dns(&st.dns, "proxy", None), sets);
+    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, "proxy", dns(&st.dns, "proxy", Some("ipv4_only")), sets);
     Ok(Built { config, notes, members: HashMap::new() })
 }
 
@@ -929,7 +951,9 @@ fn full(cfg: &Value, st: &Settings, local: &Local) -> Result<Built, String> {
             cond = true;
         }
         if resolve_first && i_ok && !resolved {
-            rules.push(json!({"action": "resolve"}));
+            // IPv4 unless the provider asks for IPv6: most servers cannot reach IPv6 at all
+            let family = if s(&cfg["dns"]["queryStrategy"]) == "UseIPv6" { "ipv6_only" } else { "ipv4_only" };
+            rules.push(json!({"action": "resolve", "strategy": family}));
             resolved = true;
         }
         if d_ok && i_ok {
@@ -1017,7 +1041,7 @@ pub fn build_auto(servers: &[Server], st: &Settings, local: &Local) -> Result<Bu
     let mut notes = vec![];
     let mut sets = Sets { dir: local.rules_dir, used: vec![] };
     let rules = link_rules(st, local, AUTO_TAG, &mut sets, &mut notes);
-    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, AUTO_TAG, dns(&st.dns, AUTO_TAG, None), sets);
+    let config = finish(st, local, inbounds(st, local.tun), outbounds, rules, AUTO_TAG, dns(&st.dns, AUTO_TAG, Some("ipv4_only")), sets);
     Ok(Built { config, notes, members })
 }
 
@@ -1027,7 +1051,7 @@ mod tests {
     use crate::model::Rule;
 
     fn local(tun: bool) -> Local<'static> {
-        Local { tun, clash_port: 9090, secret: "x", rules_dir: Path::new("") }
+        Local { tun, clash_port: 9090, probe_port: 0, secret: "x", rules_dir: Path::new("") }
     }
 
     fn link(uri: &str) -> Server {
@@ -1036,6 +1060,26 @@ mod tests {
 
     fn rules(cfg: &Value) -> Vec<Value> {
         cfg["route"]["rules"].as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn the_check_has_its_own_port_straight_to_the_server() {
+        let srv = link("vless://11111111-2222-3333-4444-555555555555@198.51.100.7:443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=www.site.com&fp=firefox&pbk=PUBKEY&sid=ab12#x");
+        let st = Settings { routing: "ru".into(), bypass_domains: vec!["example.org".into()], ..Default::default() };
+        let l = Local { tun: true, clash_port: 9090, probe_port: 31999, secret: "x", rules_dir: Path::new("") };
+        let c = build(&srv, &st, &l).unwrap().config;
+        let probe = c["inbounds"].as_array().unwrap().iter().find(|i| i["tag"] == PROBE_TAG).unwrap();
+        assert_eq!(probe["listen"], "127.0.0.1");
+        assert_eq!(probe["listen_port"], 31999);
+        // first rule: before sniffing, exclusions, the Russia preset and its DNS lookup
+        assert_eq!(rules(&c)[0], json!({"inbound": [PROBE_TAG], "outbound": "proxy"}));
+        // the lookup the preset needs asks for IPv4 only, and so does the DNS
+        assert!(rules(&c).iter().any(|r| *r == json!({"action": "resolve", "strategy": "ipv4_only"})));
+        assert_eq!(c["dns"]["strategy"], "ipv4_only");
+        // no check port asked for: none made; and through the ports no lookup before every site
+        let c = build(&srv, &st, &local(false)).unwrap().config;
+        assert!(!c["inbounds"].as_array().unwrap().iter().any(|i| i["tag"] == PROBE_TAG));
+        assert!(!rules(&c).iter().any(|r| r["action"] == "resolve"));
     }
 
     #[test]
@@ -1154,7 +1198,7 @@ mod tests {
         st.rules.push(Rule { kind: "domain".into(), value: "example.org".into(), action: "block".into() });
         st.rules.push(Rule { kind: "ip".into(), value: "203.0.113.0/24".into(), action: "direct".into() });
         let srv = link("vless://u@1.2.3.4:443?type=tcp#a");
-        let l = Local { tun: true, clash_port: 1, secret: "s", rules_dir: &dir };
+        let l = Local { tun: true, clash_port: 1, probe_port: 0, secret: "s", rules_dir: &dir };
         let b = build(&srv, &st, &l).unwrap();
         let r = rules(&b.config);
         assert_eq!(r[1], json!({"inbound": ["tun"], "port": [53], "action": "hijack-dns"}));
@@ -1269,13 +1313,13 @@ mod dump {
         for (name, uri) in links {
             let srv = crate::links::parse(uri).unwrap();
             for tun in [false, true] {
-                let l = Local { tun, clash_port: 9090, secret: "s", rules_dir: &rules };
+                let l = Local { tun, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules };
                 let b = build(&srv, &st, &l).unwrap();
                 std::fs::write(dir.join(format!("{name}-{}.json", if tun { "tun" } else { "ports" })), b.config.to_string()).unwrap();
             }
             all.push(Server { id: name.into(), ..srv });
         }
-        let l = Local { tun: false, clash_port: 9090, secret: "s", rules_dir: &rules };
+        let l = Local { tun: false, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules };
         std::fs::write(dir.join("auto-ports.json"), build_auto(&all, &st, &l).unwrap().config.to_string()).unwrap();
         let full_cfg = json!({
             "dns": {"servers": ["1.1.1.1", {"address": "8.8.8.8"}], "queryStrategy": "UseIPv4"},
@@ -1294,7 +1338,7 @@ mod dump {
                     {"type": "field", "port": "25,465-587", "outboundTag": "blocked"}]}});
         let srv = Server { config: Some(full_cfg), ..Default::default() };
         for tun in [false, true] {
-            let l = Local { tun, clash_port: 9090, secret: "s", rules_dir: &rules };
+            let l = Local { tun, clash_port: 9090, probe_port: 0, secret: "s", rules_dir: &rules };
             std::fs::write(dir.join(format!("full-{}.json", if tun { "tun" } else { "ports" })), build(&srv, &st, &l).unwrap().config.to_string()).unwrap();
         }
     }
