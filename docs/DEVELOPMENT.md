@@ -69,19 +69,32 @@ There is no Android project in the repository: `npx tauri android init` generate
 `src-tauri/gen/android`, and `node tools/android-prepare.mjs` adjusts it. What is ours lives in
 `src-tauri/plugins/vpn` (the Kotlin VPN service and plugin) and `src-tauri/src/android.rs`.
 
-How it works: the core is the ordinary Xray binary (sing-box is not built for Android yet; TODO:
-ship our fork per ABI as `libsingbox.so` the same way), shipped as `libxray.so` because Android
-only runs programs from the package's native-library folder (`node tools/fetch-xray.mjs
---android` puts it there). The VPN service creates the tunnel device and hands its file
-descriptor to Rust, where tun2proxy turns the packets into SOCKS connections to the core.
-The app excludes itself from the VPN, so the core reaches the server directly.
+How it works: the cores are the same as on a desktop, sing-box (our fork) with Xray as the
+fallback, picked by the same rules (`xray_reason` in `core.rs`). Both are plain programs shipped
+as `libsingbox.so` and `libxray.so`, because Android only runs programs from the package's
+native-library folder (`useLegacyPackaging`, set by `tools/android-prepare.mjs`, keeps them there
+as real files). `node tools/fetch-singbox.mjs --android` cross-builds the fork for arm64-v8a,
+armeabi-v7a and x86_64 with the NDK's clang (`ANDROID_NDK_HOME`) and puts the rule-sets into the
+plugin's assets; `node tools/fetch-xray.mjs --android` adds Xray. The APK only takes the ABIs it
+is built for (`--target`), and today that is aarch64 and x86_64: an armv7 APK would also need
+the Rust side built for armv7 and an Xray build (Xray publishes none for Android on 32-bit ARM).
+
+The VPN service creates the tunnel device and hands its file descriptor to Rust, where
+tun2proxy turns the packets into SOCKS connections to whichever core runs. sing-box's own TUN
+inbound is not used: as a plain program it cannot take the system VPN's descriptor, so the same
+tun2proxy path serves both cores. The app excludes itself from the VPN, so the core reaches the
+server directly. sing-box's "local" DNS reads `/etc/resolv.conf`, which Android does not have,
+so its "local" servers are pointed at a small resolver inside the app (`src-tauri/src/sysdns.rs`)
+that answers with the system's own lookups.
 
 `.github/workflows/android.yml` builds a debug APK and runs `tools/android-e2e.sh` on an
-emulator: a VLESS server is started on the runner, the app is told through `autotest.json`
-(debug builds only, see `autotest` in `src-tauri/src/lib.rs`) to add it, connect, hold and
-disconnect, and the script checks the server's log for another app's request. It then builds
-the release APKs, signs them with the key in the repository secrets
-(`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`) and starts the signed build once.
+emulator three times: sing-box over plain VLESS with every check, sing-box over XHTTP + REALITY,
+and Xray chosen in the settings. A VLESS server is started on the runner, the app is told through
+`autotest.json` (debug builds only, see `autotest` in `src-tauri/src/lib.rs`) to add it, connect,
+hold and disconnect, and the script checks which core made the connection, the server's log for
+another app's request, a domain from the exclusions going past the server, and the network after
+disconnecting. It then builds the release APKs, signs them with the key in the repository
+secrets (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`) and starts the signed build once.
 
 Two things learnt the hard way about the emulator: use the plain `default` system image (with
 Google's services the emulator stalls, and when the system kills a stalled Google process it

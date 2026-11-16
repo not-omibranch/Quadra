@@ -435,10 +435,7 @@ impl JsonValue for reqwest::Response {
 
 /// Why this connection has to be made by Xray rather than sing-box, if it has to.
 fn xray_reason(ctx: &Ctx, server: &Server, settings: &Settings) -> Option<String> {
-    if cfg!(target_os = "android") {
-        return Some("sing-box для Android ещё не собран".into());
-    }
-    if !ctx.singbox.join(sys::SINGBOX_BIN).is_file() {
+    if !ctx.singbox_bin.is_file() {
         return Some("sing-box не найден рядом с приложением".into());
     }
     if settings.core == "xray" {
@@ -523,7 +520,7 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
     let mut group: Vec<Server> = vec![];
     let id = if id == "auto" {
         let candidates = auto_candidates(&ctx, &settings);
-        let usable = !cfg!(target_os = "android") && settings.core != "xray" && ctx.singbox.join(sys::SINGBOX_BIN).is_file();
+        let usable = settings.core != "xray" && ctx.singbox_bin.is_file();
         if usable && !candidates.is_empty() {
             let first = candidates[0].id.clone();
             group = candidates;
@@ -617,11 +614,21 @@ pub async fn connect(app: AppHandle, ctx: Arc<Ctx>, id: String) -> Result<(), St
                 }
                 (singbox::build_auto(&pinned_group, &settings, &local), found, asked)
             };
-            let built = match built {
+            #[allow(unused_mut)]
+            let mut built = match built {
                 Ok(b) => b,
                 Err(e) => return fail(e).await,
             };
-            Plan { cfg: built.config, bin: ctx.singbox.join(sys::SINGBOX_BIN),
+            // Android has no resolv.conf for sing-box's "local" DNS: those questions go to the
+            // system's resolver through the app (see sysdns.rs)
+            #[cfg(target_os = "android")]
+            match crate::sysdns::port().await {
+                Ok(port) => {
+                    crate::sysdns::redirect_local(&mut built.config, port);
+                }
+                Err(e) => return fail(e).await,
+            }
+            Plan { cfg: built.config, bin: ctx.singbox_bin.clone(),
                    args: vec!["run".into(), "--disable-color".into(), "-c".into(), cfg_arg.clone()],
                    stats: Stats::SingBox { clash, secret, members: built.members }, engine: "sing-box", notes: built.notes, found, asked }
         }

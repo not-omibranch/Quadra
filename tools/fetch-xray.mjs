@@ -56,11 +56,12 @@ async function fetchAsset(name) {
 
 if (process.argv.includes('--android')) {
   // Android runs a program only from the package's native library folder, so the core goes
-  // in as "libxray.so" for each architecture; its data files travel as assets.
+  // in as "libxray.so" for each architecture; its data files travel as assets. sing-box sits
+  // next to it as "libsingbox.so" (tools/fetch-singbox.mjs --android), so only our file goes.
   const main = join(root, 'src-tauri', 'plugins', 'vpn', 'android', 'src', 'main');
   const abis = { 'arm64-v8a': 'Xray-android-arm64-v8a.zip', x86_64: 'Xray-android-amd64.zip' };
   console.log(`Xray ${version} for Android`);
-  rmSync(join(main, 'jniLibs'), { recursive: true, force: true });
+  for (const abi of Object.keys(abis)) rmSync(join(main, 'jniLibs', abi, 'libxray.so'), { force: true });
   rmSync(join(main, 'assets', 'xray'), { recursive: true, force: true });
   mkdirSync(join(main, 'assets', 'xray'), { recursive: true });
   for (const [abi, name] of Object.entries(abis)) {

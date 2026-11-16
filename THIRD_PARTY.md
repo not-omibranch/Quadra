@@ -5,7 +5,7 @@ following, each under its own terms.
 
 | What | Where it comes from | Licence |
 |---|---|---|
-| **sing-box** (`sing-box` / `sing-box.exe`), which makes the connections | <https://github.com/SagerNet/sing-box>, built from our fork with an XHTTP transport added (`tools/fetch-singbox.mjs`, repository in `tools/singbox.source`) | GPL-3.0-or-later; its `LICENSE` file is installed next to the binary |
+| **sing-box** (`sing-box` / `sing-box.exe`; `libsingbox.so` on Android), which makes the connections | <https://github.com/SagerNet/sing-box>, built from our fork with an XHTTP transport added (`tools/fetch-singbox.mjs`, repository in `tools/singbox.source`) | GPL-3.0-or-later; its `LICENSE` file is installed next to the binary (on Android, next to the rule-sets in the app's folder) |
 | **sing-geosite / sing-geoip rule-sets** (`geosite-category-ru.srs`, `geoip-ru.srs`) for the "Russia direct" preset | <https://github.com/SagerNet/sing-geosite>, <https://github.com/SagerNet/sing-geoip>, `rule-set` branches | See those projects |
 | **Xray-core** (`xray` / `xray.exe`), the fallback core for what sing-box cannot do | <https://github.com/XTLS/Xray-core>, release named in `tools/xray.version`, downloaded unmodified and checksum-verified by `tools/fetch-xray.mjs` | MPL-2.0; its `LICENSE` file is installed next to the binary |
 | **Wintun** (`wintun.dll`, Windows only), the tunnel driver used by the all-traffic mode | Shipped inside the Xray-core Windows archive; <https://www.wintun.net> | Prebuilt binaries licence, installed as `LICENSE-wintun.txt` |

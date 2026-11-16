@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -58,8 +60,37 @@ jobs:
             echo "No signing secrets: the tested debug APK will be kept as a workflow artifact; release APK steps will be skipped."
           fi
 
-      - name: Xray-core for Android
+      - name: Xray-core for Android (the fallback core)
         run: node tools/fetch-xray.mjs --android
+
+      # sing-box, our fork with XHTTP, cross-built for each Android ABI with the NDK. The build
+      # is kept between runs while the fork's commit and the script stay the same (a week at
+      # most, so that the rule-sets shipped with it do not get old).
+      - name: Which sing-box
+        id: singbox
+        run: |
+          read -r repo branch < tools/singbox.source
+          sha=$(git ls-remote "$repo" "refs/heads/$branch" | cut -f1)
+          echo "fork $repo $branch at $sha"
+          echo "key=singbox-android-$sha-${{ hashFiles('tools/fetch-singbox.mjs') }}-$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: singbox-cache
+        with:
+          key: ${{ steps.singbox.outputs.key }}
+          path: |
+            src-tauri/plugins/vpn/android/src/main/jniLibs/*/libsingbox.so
+            src-tauri/plugins/vpn/android/src/main/assets/sing-box
+
+      - uses: actions/setup-go@v5
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: sing-box for Android
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        run: node tools/fetch-singbox.mjs --android
 
       - name: Generate the Android project
         run: |
@@ -75,6 +106,8 @@ jobs:
           echo "built $apk"
           cp "$apk" quadra-android-debug.apk
           ls -la quadra-android-debug.apk
+          echo "native libraries (size, size in the APK, name):"
+          unzip -lv quadra-android-debug.apk 'lib/*' | awk '/lib\//{print $1, $3, $8}'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -96,7 +129,10 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: bash tools/android-e2e.sh quadra-android-debug.apk
+          # sing-box over plain VLESS with every check, sing-box over XHTTP + REALITY (what our
+          # fork is for), and the Xray fallback chosen in the settings: all three run, then the
+          # step fails if any of them did
+          script: bash -c 'f=0; bash tools/android-e2e.sh quadra-android-debug.apk || f=1; OUT=android-e2e/xhttp TRANSPORT=xhttp SHORT=1 bash tools/android-e2e.sh quadra-android-debug.apk || f=1; OUT=android-e2e/xray CORE=xray SHORT=1 bash tools/android-e2e.sh quadra-android-debug.apk || f=1; exit $f'
 
       # The build people install: optimised, one file per architecture, signed with the project's key.
       - name: Build the release APKs

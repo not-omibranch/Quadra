@@ -34,10 +34,15 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 
 # Android: the system VPN hands us a tunnel device; tun2proxy turns its packets into SOCKS
-# connections to the core.
+# connections to the core. hickory-proto (already there for tun2proxy) parses the DNS questions
+# sing-box sends to the app's stand-in for the system resolver (src/sysdns.rs).
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-quadra-vpn = { path = "plugins/vpn" }
 tun2proxy = { version = "0.8", default-features = false }
+hickory-proto = "0.26"
+
+[dev-dependencies]
+hickory-proto = "0.26"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
