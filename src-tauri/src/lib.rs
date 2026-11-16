@@ -720,7 +720,7 @@ pub fn run() {
             // On Android the core ships as a native library of the package, and its data files
             // are unpacked into the app's own folder by the plugin.
             #[cfg(target_os = "android")]
-            let (xray, assets) = {
+            let (xray, assets, singbox) = {
                 let info = android::info(app.handle()).map_err(std::io::Error::other)?;
                 sys::set_device(&info.model, &info.release);
                 // sing-box is not shipped for Android yet: connections there stay on Xray
